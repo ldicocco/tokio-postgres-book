@@ -1,0 +1,54 @@
+# The book's workspace: the playground the examples are compiled in, the example apps and
+# the capstone service. Every dependency version is declared once, here, and members say
+# `{ workspace = true }`.
+#
+# The one exception is `playground/Cargo.toml`, which spells its versions out because it is
+# printed verbatim in Chapter 0 for readers to copy; `tools/book.py check` fails if its
+# versions drift from the ones below.
+#
+# A version such as "0.7.18" is a minimum (`^0.7.18`), not a pin; Cargo.lock records what is
+# actually built.
+
+[workspace]
+resolver = "3"
+members = ["playground"]
+# Phase 1 adds "stockroom"; Phase 2 adds "apps/*".
+
+[workspace.package]
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+# The subject of the book
+tokio-postgres = { version = "0.7.18", features = ["with-jiff-0_2", "with-serde_json-1", "with-uuid-1", "array-impls"] }
+postgres-types = { version = "0.2.14", features = ["derive"] }
+deadpool-postgres = "0.14.2"
+
+# Runtime and async plumbing
+tokio = { version = "1.54.1", features = ["full"] }
+tokio-util = "0.7.20"
+futures-util = "0.3.34"
+async-stream = "0.3.6"
+bytes = "1.12.1"
+
+# HTTP
+axum = "0.8.9"
+tower = { version = "0.5.3", features = ["util"] }
+tower-http = { version = "0.7.1", features = ["trace", "timeout", "limit"] }
+http-body-util = "0.1.5"
+
+# Data
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+uuid = { version = "1.29.0", features = ["v7", "serde"] }
+jiff = { version = "0.2.39", features = ["serde"] }
+rust_decimal = { version = "1.43.0", features = ["db-tokio-postgres"] }
+csv = "1.4.0"
+
+# Errors, logging, CLI
+thiserror = "2.0.21"
+anyhow = "1.0.104"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+clap = { version = "4.6.7", features = ["derive", "env"] }
+fastrand = "2.5.0"

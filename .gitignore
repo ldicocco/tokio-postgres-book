@@ -1,0 +1,10 @@
+/target
+.env
+.DS_Store
+/playground/examples/
+
+# docker/gen-certs.sh output: throwaway keys, never committed
+/docker/certs/
+
+# Python bytecode from tools/
+__pycache__/

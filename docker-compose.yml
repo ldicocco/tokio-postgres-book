@@ -1,0 +1,39 @@
+# Optional: PostgreSQL 18 with TLS on localhost:5434, for the TLS examples in Chapter 12.
+#
+#   docker/gen-certs.sh        once: a throwaway CA + a localhost certificate in docker/certs/
+#   docker compose up -d       start (TLS only from outside the container: hostssl)
+#   docker compose down -v     stop and delete its data
+#
+# The password comes from TLS_PG_PASSWORD in .env (gitignored); docker compose reads .env
+# from this directory by itself.
+
+services:
+  postgres-tls:
+    image: postgres:18
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_PASSWORD: ${TLS_PG_PASSWORD:?set TLS_PG_PASSWORD in .env}
+      POSTGRES_DB: tpbook
+    volumes:
+      - ./docker/certs:/certs:ro
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    # The server refuses a key file other users can read, and a bind mount from macOS cannot
+    # promise that: copy the certificates in with the right owner and mode, then start.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        install -d -o postgres -g postgres -m 700 /etc/pgtls &&
+        install -o postgres -g postgres -m 600 /certs/server.key /etc/pgtls/server.key &&
+        install -o postgres -g postgres -m 644 /certs/server.crt /certs/ca.crt /etc/pgtls/ &&
+        exec docker-entrypoint.sh postgres
+        -c ssl=on
+        -c ssl_cert_file=/etc/pgtls/server.crt
+        -c ssl_key_file=/etc/pgtls/server.key
+        -c ssl_ca_file=/etc/pgtls/ca.crt
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "tpbook"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

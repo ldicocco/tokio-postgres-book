@@ -1,0 +1,156 @@
+# The chapter registry. One [[chapter]] per chapter, in reading order; `tools/book.py`
+# reads it for every command, and the contents table in README.md is generated from it
+# (`python3 tools/book.py index`).
+#
+# Fields
+#   id       Stable slug, the handle `book.py pdf <id>` and `check --chapter` accept
+#            (`check --chapter 8` also works: the number is the file name's prefix).
+#   path     Relative to book/.
+#   title    Must equal the chapter's own `# ` heading once the file exists.
+#   summary  One line, no trailing period: what the README's contents table shows.
+#   status   planned | draft | current.
+#              planned  the file may not exist yet; nothing is checked
+#              draft    the file exists; its runnable blocks, links and excerpts are checked
+#              current  finished: also owes a PDF rendered from its text as it is now
+#
+# The outline each chapter is written from is in PLAN.md §7.
+
+[[chapter]]
+id = "introduction"
+path = "00-introduction.md"
+title = "Chapter 0 — Introduction and setup"
+summary = "Who the book is for, where tokio-postgres sits among Rust's Postgres libraries, the setup, and stockroom in one page"
+status = "draft"
+
+[[chapter]]
+id = "connecting"
+path = "01-connecting.md"
+title = "Chapter 1 — Connecting"
+summary = "Client and Connection, spawning the connection task, connection strings and the Config builder, lifecycle and failures"
+status = "planned"
+
+[[chapter]]
+id = "queries"
+path = "02-queries.md"
+title = "Chapter 2 — Running SQL: execute, query and parameters"
+summary = "batch_execute, execute, query and its one/opt/scalar variants, parameters and injection, RETURNING, the simple query protocol"
+status = "planned"
+
+[[chapter]]
+id = "rows-and-types"
+path = "03-rows-and-types.md"
+title = "Chapter 3 — Rows and the type mapping"
+summary = "Reading rows, the Rust–Postgres type table, feature flags, borrowing from rows, NULL, JSON and arrays"
+status = "planned"
+
+[[chapter]]
+id = "prepared-statements"
+path = "04-prepared-statements.md"
+title = "Chapter 4 — Prepared statements and the extended protocol"
+summary = "What goes over the wire, Statement and ToStatement, type inference, query_typed, statement caching and round trips"
+status = "planned"
+
+[[chapter]]
+id = "custom-types"
+path = "05-custom-types.md"
+title = "Chapter 5 — Custom types: ToSql and FromSql"
+summary = "Implementing the conversion traits by hand, and deriving them for newtypes, enums, domains and composites"
+status = "planned"
+
+[[chapter]]
+id = "errors"
+path = "06-errors.md"
+title = "Chapter 6 — Errors"
+summary = "tokio_postgres::Error, DbError and SqlState, designing an application error, and aborted transactions"
+status = "planned"
+
+[[chapter]]
+id = "pipelining"
+path = "07-pipelining.md"
+title = "Chapter 7 — One connection, many tasks: pipelining"
+summary = "Lazy futures and request order, join! and try_join!, sharing a Client, head-of-line blocking and bounded concurrency"
+status = "planned"
+
+[[chapter]]
+id = "transactions"
+path = "08-transactions.md"
+title = "Chapter 8 — Transactions and concurrency control"
+summary = "Transactions and the borrow checker, isolation levels, savepoints, GenericClient, retries, locks and the oversell problem"
+status = "planned"
+
+[[chapter]]
+id = "streaming"
+path = "09-streaming.md"
+title = "Chapter 9 — Streaming rows and portals"
+summary = "query_raw and RowStream, backpressure on a shared connection, portals, cursors and keyset pagination"
+status = "planned"
+
+[[chapter]]
+id = "copy"
+path = "10-copy.md"
+title = "Chapter 10 — Bulk data: COPY"
+summary = "COPY in and out in text, CSV and binary formats, failure mid-COPY, staging tables, and a bulk-load benchmark"
+status = "planned"
+
+[[chapter]]
+id = "listen-notify"
+path = "11-listen-notify.md"
+title = "Chapter 11 — LISTEN/NOTIFY and notices"
+summary = "Driving the Connection with poll_message, notifications and notices, triggers, a dedicated listener and fan-out"
+status = "planned"
+
+[[chapter]]
+id = "production-connections"
+path = "12-production-connections.md"
+title = "Chapter 12 — Production connections: timeouts, cancellation, health and TLS"
+summary = "Why dropping a future is not cancelling, CancelToken, server-side timeouts, dead connections, failover and TLS"
+status = "planned"
+
+[[chapter]]
+id = "pooling"
+path = "13-pooling.md"
+title = "Chapter 13 — Connection pooling"
+summary = "Why one client is not enough, a pool from scratch, deadpool-postgres, sizing, and what not to do with pooled connections"
+status = "planned"
+
+[[chapter]]
+id = "data-layer"
+path = "14-data-layer.md"
+title = "Chapter 14 — Schema, migrations and the data layer"
+summary = "Embedded migrations under an advisory lock, transactional DDL, and a repository layer over GenericClient"
+status = "planned"
+
+[[chapter]]
+id = "axum-api"
+path = "15-axum-api.md"
+title = "Chapter 15 — axum I: a database-backed JSON API"
+summary = "App state and extractors, errors as responses, transactional writes, keyset pagination and ETags"
+status = "planned"
+
+[[chapter]]
+id = "axum-streaming"
+path = "16-axum-streaming.md"
+title = "Chapter 16 — axum II: streaming, real-time and background work"
+summary = "NDJSON and CSV streaming, CSV import through COPY, server-sent events from NOTIFY, an outbox worker and graceful shutdown"
+status = "planned"
+
+[[chapter]]
+id = "testing"
+path = "17-testing.md"
+title = "Chapter 17 — Testing against a real database"
+summary = "Per-test databases from a template, rollback tests and their limits, HTTP tests, and concurrency tests"
+status = "planned"
+
+[[chapter]]
+id = "capstone"
+path = "18-capstone.md"
+title = "Chapter 18 — Capstone: stockroom end to end"
+summary = "The whole service: a request's life from HTTP to NOTIFY, the feature map, running it, and where to take it next"
+status = "planned"
+
+[[chapter]]
+id = "appendix"
+path = "19-appendix.md"
+title = "Appendix — cheat sheets, phrasebook and glossary"
+summary = "The API and type-mapping cheat sheets, SqlState codes with HTTP mappings, a sqlx/diesel phrasebook and a glossary"
+status = "planned"
