@@ -777,6 +777,8 @@ let Json(customer): Json<Customer> = head.try_get("customer")?;
 3. **A left join.** Products and their reviews: `products (sku)` and `reviews (sku, stars
    int)`. Return every product with its average number of stars, or `None` when it has no
    reviews. Which Rust type do you read the average as?
+   *Hint:* `avg` over an `int` column returns `numeric`, and a product without reviews gets a
+   `NULL` from the left join.
 4. **Find by tags.** Write a query that returns the products having *all* of a list of tags,
    and one that returns the products having *any* of them. Both take one array parameter.
    *Hint:* `@>` and `&&`.

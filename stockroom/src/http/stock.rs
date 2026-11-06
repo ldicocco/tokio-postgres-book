@@ -2,7 +2,6 @@
 
 use axum::Json;
 use axum::extract::Path;
-use futures_util::FutureExt;
 use tokio_postgres::IsolationLevel;
 
 use super::{AppJson, Db};
@@ -37,12 +36,9 @@ pub async fn transfer(
     Db(mut db): Db,
     AppJson(transfer): AppJson<Transfer>,
 ) -> Result<Json<TransferReceipt>, AppError> {
-    let receipt = db::in_transaction(
-        &mut db,
-        IsolationLevel::Serializable,
-        &transfer,
-        |tx, transfer| stock::transfer(tx, transfer).boxed(),
-    )
+    let receipt = db::in_transaction(&mut db, IsolationLevel::Serializable, async move |tx| {
+        stock::transfer(tx, &transfer).await
+    })
     .await?;
     Ok(Json(receipt))
 }

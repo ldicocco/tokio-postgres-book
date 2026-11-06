@@ -710,9 +710,13 @@ let store_ids: Vec<Uuid> = tx
 2. **Evolve an enum.** With a strict enum and a real (not temporary) type, open two
    connections, add a label with one of them, and check what each connection can read.
    Explain the difference.
+   *Hint:* each connection caches the types it has looked up; `clear_type_cache` empties that
+   cache.
 3. **A composite with a nested composite.** Make a `geo` composite `(lat float8, lon float8)`
    and an `address` composite that has a `location geo` field. Derive both in Rust, and round
    trip a value.
+   *Hint:* derive `ToSql` and `FromSql` on both structs; the outer struct's `geo` field converts
+   through the inner derive.
 4. **`interval`, by hand.** tokio-postgres has no mapping for `interval`. Its binary format is
    16 bytes: a big-endian `i64` of microseconds, then an `i32` of days, then an `i32` of
    months. Write `struct PgInterval { months: i32, days: i32, microseconds: i64 }` with a

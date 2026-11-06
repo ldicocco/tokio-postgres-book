@@ -1138,12 +1138,16 @@ dependencies = [
  "jiff",
  "postgres-types",
  "rust_decimal",
+ "rustls",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
  "tokio-postgres",
+ "tokio-postgres-rustls",
+ "tokio-util",
  "tower",
+ "tower-http",
  "uuid",
 ]
 

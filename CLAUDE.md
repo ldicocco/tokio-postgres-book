@@ -46,8 +46,17 @@ Track it in `book/book.toml`: each chapter is `planned`, `draft` or `current`.
 - **Phase 3a (Part I, Chapters 0–6) is done** (2026-11-06): all `current`, 59 runnable
   examples, the book PDF rendered. Writing them corrected several facts; see PLAN.md
   §12, rows 27–33.
-- **Next is Phase 3b: Part II, Chapters 7–12** (PLAN.md §7, §9). Write one chapter at a time,
-  using the findings in PLAN.md §12.
+- **Phases 3b and 3c (Part II, Part III and the appendix) are done** (2026-11-06): Chapters
+  7–18 `current`, 156 runnable examples in all, every gate green (including the three
+  `needs=tls` examples against docker compose). The playground gained the helpers
+  `slice_iter`, `connect_with_messages`, `pool` and `call`, and the crates `rustls`,
+  `tokio-postgres-rustls`, `tokio-util` and `tower-http`. Findings: PLAN.md §12, rows 34–45.
+  Notable: in 0.7.18 a `COPY … FROM STDIN` rejected as it starts kills the connection
+  (rust-postgres issue #789, Chapter 10).
+- **Phase 4 (polish) is done** (2026-11-06): the book PDF rebuilt (290 pages), banners and
+  exercise hints made uniform (17 Part I and II exercises lacked a *Hint*), cross-references
+  checked, and the §5.3 coverage audit closed with one new example in §12.4. Appendix F
+  (crates built on tokio-postgres) was researched from crates.io, docs.rs and the crates' source.
 
 ## Commands
 
@@ -225,8 +234,8 @@ with `// …`.
   - repository functions take `&impl deadpool_postgres::GenericClient` (or `&Transaction<'_>`)
     and use `prepare_cached`;
   - handlers get a connection from the `Db` extractor and a JSON body from `AppJson`;
-  - transactions that can collide go through `db::in_transaction(&mut db, isolation, &input,
-    |tx, input| repo::f(tx, input).boxed())`;
+  - transactions that can collide go through `db::in_transaction(&mut db, isolation, async move
+    |tx| repo::f(tx, &input).await)`, with the closure owning `input`;
   - row locks are always taken in a fixed order (by id).
 - `#![allow(clippy::clone_on_copy)]` in `stockroom/src/lib.rs` is deliberate: `MakeTls` is the
   `Copy` type `NoTls` without the `tls` feature, and the clones are needed with it.
@@ -272,7 +281,13 @@ with `// …`.
 - `RowStream::rows_affected()` returns an `Option<u64>`, which becomes available once the stream
   is exhausted.
 - `CopyInSink<T: Buf>` is a `Sink`, and you must call `finish()` on it. Dropping it unfinished
-  aborts the COPY.
+  aborts the COPY. `SinkExt::send` flushes per item (one CopyData message each).
+- **A `COPY … FROM STDIN` that the server rejects as it starts (missing table or column,
+  `ON_ERROR ignore` with binary) kills the connection** in 0.7.18: the next request fails
+  with "unexpected message from server" (rust-postgres issue #789). Errors during the copy
+  or from `finish()` are fine.
+- `drop(x)` on a value pinned with `pin!` drops only the reference: an unfinished
+  `RowStream` or `BinaryCopyInWriter` then stalls the connection. Scope it in a block.
 - `BinaryCopyInWriter::new(sink, &[Type])` is used with `write(&[&dyn ToSql])` and then
   `finish() -> u64`, and the writer must be pinned. `BinaryCopyOutStream::new(stream, &[Type])`
   yields `BinaryCopyOutRow` values, which have `get`/`try_get` by index.
@@ -286,8 +301,11 @@ with `// …`.
   `CancelToken::cancel_query(tls)`.
 - deadpool-postgres 0.14.2 defaults to `RecyclingMethod::Fast`. Its other methods are
   `Verified`, `Clean` and `Custom`.
-  - Its `GenericClient` uses **native `async fn` in the trait**, not async-trait. It is
-    implemented for `Object` (= `deadpool_postgres::Client`) and deadpool's `Transaction`.
+  - Its `GenericClient` is, like tokio-postgres's, **sealed and `#[async_trait]`** (boxed
+    `Send` futures; corrected 2026-11-06 from the source, `generic_client.rs`), plus
+    `prepare_cached`. It is implemented for `Object` (= `deadpool_postgres::Client`) and
+    deadpool's `Transaction`.
+  - It is built on deadpool 0.13.1 (Cargo.lock), not 0.12.
   - `Object` derefs to `ClientWrapper`, which derefs to `tokio_postgres::Client`, so
     `&object` coerces to `&tokio_postgres::Client`.
   - `Object::take(obj)` detaches a connection from the pool.
@@ -297,10 +315,13 @@ with `// …`.
     derived domain newtype, or a hand-written `accepts`.
   - A domain *result column* is described as its base type.
   - In `col = $1` and `col = ANY($1)` comparisons, the parameter is the base type.
-- **`AsyncFnMut(&Transaction<'_>)` closures cannot be called from axum handlers**: "implementation
-  of `Send` is not general enough". Use `for<'t> FnMut(&'t Transaction<'t>, &'t A) ->
-  BoxFuture<'t, _>` with the input passed as an argument (`stockroom/src/db/retry.rs`), or a
-  `FnMut() -> Fut` closure whose future owns its connection.
+- **`AsyncFnMut(&Transaction<'_>)` helpers work in axum handlers and spawned tasks if the
+  closure owns what it uses** (`async move |tx| place(tx, &order).await`, with `order` owned by
+  the handler). A closure whose captures contain *any* reference (to the caller's locals, or
+  even a `&'static str`) fails there with
+  "implementation of `Send` is not general enough", a compiler limitation (verified with
+  rustc 1.99, isolated in six variants: PLAN.md §12 #6). stockroom's `db::in_transaction` takes
+  an `AsyncFnMut`.
 - A query future borrows its parameter slice. When futures are joined, bind the slice to a name
   or build it inside an `async move` block.
 

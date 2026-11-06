@@ -35,7 +35,7 @@ the driver and a real codebase at the same time.
 | [16 · axum II](16-axum-streaming.md) | Streaming bodies, COPY over HTTP, server-sent events, an outbox worker, shutdown |
 | [17 · Testing](17-testing.md) | A database per test, HTTP tests, concurrency tests |
 | [18 · Capstone](18-capstone.md) | stockroom end to end, and a map from every feature to its code |
-| [A · Appendix](19-appendix.md) | Cheat sheets, a sqlx and diesel phrasebook, a glossary |
+| [A · Appendix](19-appendix.md) | Cheat sheets, a sqlx and diesel phrasebook, a glossary, and the crates built on tokio-postgres |
 
 The whole book is also available as a single PDF, [tokio-postgres-book.pdf](tokio-postgres-book.pdf),
 with a linked table of contents. To print one chapter, render it yourself from the repository's
@@ -239,17 +239,23 @@ http-body-util = "0.1.5"
 jiff = { version = "0.2.39", features = ["serde"] }
 postgres-types = { version = "0.2.14", features = ["derive"] }
 rust_decimal = { version = "1.43.0", features = ["db-tokio-postgres"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "logging", "tls12"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["full"] }
 tokio-postgres = { version = "0.7.18", features = ["with-jiff-0_2", "with-serde_json-1", "with-uuid-1", "array-impls"] }
+tokio-postgres-rustls = "0.14.0"
+tokio-util = "0.7.20"
 tower = { version = "0.5.3", features = ["util"] }
+tower-http = { version = "0.7.1", features = ["trace", "timeout", "limit"] }
 uuid = { version = "1.29.0", features = ["v7", "serde"] }
 ```
 
 The `features` on `tokio-postgres` switch on conversions for other crates' types: `jiff`'s
 timestamps, `serde_json`'s values, `uuid`'s UUIDs, and Rust arrays. Chapter 3 explains them.
+`rustls` and `tokio-postgres-rustls` are for the TLS connections of Chapter 12, and
+`tokio-util` and `tower-http` for the services of Part III.
 
 Then replace `src/lib.rs` with the helper every example uses to connect. Chapter 1 explains
 every line of it:
@@ -357,6 +363,8 @@ Four things in these lines are worth noticing now, and each gets a chapter later
    `cargo run -p pgq -- -c "SELECT name, setting FROM pg_settings WHERE name LIKE 'max_conn%'"`
    and then the same with `--describe`. What does `--describe` tell you that the plain run
    does not?
+   *Hint:* `--describe` prepares the statement instead of running it (Chapter 4 explains what a
+   prepare returns).
 4. **Run the service.** From the repository's root:
    `cargo run -p stockroom -- migrate`, then `cargo run -p stockroom -- seed`, then
    `cargo run -p stockroom -- serve`, and open [stockroom.http](../stockroom/stockroom.http)

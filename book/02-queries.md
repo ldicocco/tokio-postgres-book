@@ -672,6 +672,9 @@ that is the simple protocol's trade.
    client.query(&sql, &[]).await?
    ~~~
 
+   *Hint:* `ORDER BY` takes a keyword, and a keyword cannot be a parameter; compare `direction`
+   against a fixed list instead.
+
 4. **Found, or not.** Write `async fn price_of(client: &Client, sku: &str) ->
    Result<Option<i64>, Error>`, which returns `Ok(None)` for an unknown SKU and an error only
    when something actually went wrong.
@@ -679,6 +682,8 @@ that is the simple protocol's trade.
 5. **A tiny psql.** Use `simple_query` to run a script typed by a user and print, for each
    statement, either its rows or "OK, n affected". Compare your version with `run` in
    [apps/pgq/src/lib.rs](../apps/pgq/src/lib.rs).
+   *Hint:* a `RowDescription` arrives even for a `SELECT` that returns no rows, and
+   `CommandComplete` carries the count.
 
 ### Solutions
 

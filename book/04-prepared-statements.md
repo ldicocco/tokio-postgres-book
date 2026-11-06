@@ -572,12 +572,16 @@ $ cargo run -p pgq -- --describe -c 'SELECT relname, relpages FROM pg_class WHER
 2. **Infer it.** For each of these, predict the type the server gives `$1`, then check with
    `prepare` or `pgq --describe`: `SELECT $1 = 1`, `SELECT length($1)`, `SELECT now() - $1`,
    `SELECT ARRAY[$1, 2]`, `SELECT coalesce($1, 0.5)`.
+   *Hint:* the server infers each parameter's type from where it appears; `Statement::params()`
+   reports what it chose, and not every expression gives it enough to choose.
 3. **A dynamic query in one round trip.** Rewrite Chapter 2's `search` (optional filters) with
    `query_typed`, so that every combination of filters costs one round trip.
    *Hint:* the parameter list becomes `Vec<(&(dyn ToSql + Sync), Type)>`.
 4. **Stale.** Using the cache from §4.6, write a test that shows the stale-statement failure
    after `ALTER TABLE`, then make `CachingClient::query` recover by itself: on SQLSTATE 0A000,
    drop the cached statement, prepare it again and retry once.
+   *Hint:* the error is `SqlState::FEATURE_NOT_SUPPORTED` (0A000), "cached plan must not change
+   result type"; Chapter 13 meets it again with deadpool's cache.
 
 ### Solutions
 

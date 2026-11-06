@@ -28,19 +28,19 @@ driver. Every runnable example in the book is compiled and run against PostgreSQ
 | [Chapter 4 — Prepared statements and the extended protocol](book/04-prepared-statements.md) | What goes over the wire, Statement and ToStatement, type inference, query_typed, statement caching and round trips | current |
 | [Chapter 5 — Custom types: ToSql and FromSql](book/05-custom-types.md) | Implementing the conversion traits by hand, and deriving them for newtypes, enums, domains and composites | current |
 | [Chapter 6 — Errors](book/06-errors.md) | tokio_postgres::Error, DbError and SqlState, designing an application error, and aborted transactions | current |
-| Chapter 7 — One connection, many tasks: pipelining | Lazy futures and request order, join! and try_join!, sharing a Client, head-of-line blocking and bounded concurrency | planned |
-| Chapter 8 — Transactions and concurrency control | Transactions and the borrow checker, isolation levels, savepoints, GenericClient, retries, locks and the oversell problem | planned |
-| Chapter 9 — Streaming rows and portals | query_raw and RowStream, backpressure on a shared connection, portals, cursors and keyset pagination | planned |
-| Chapter 10 — Bulk data: COPY | COPY in and out in text, CSV and binary formats, failure mid-COPY, staging tables, and a bulk-load benchmark | planned |
-| Chapter 11 — LISTEN/NOTIFY and notices | Driving the Connection with poll_message, notifications and notices, triggers, a dedicated listener and fan-out | planned |
-| Chapter 12 — Production connections: timeouts, cancellation, health and TLS | Why dropping a future is not cancelling, CancelToken, server-side timeouts, dead connections, failover and TLS | planned |
-| Chapter 13 — Connection pooling | Why one client is not enough, a pool from scratch, deadpool-postgres, sizing, and what not to do with pooled connections | planned |
-| Chapter 14 — Schema, migrations and the data layer | Embedded migrations under an advisory lock, transactional DDL, and a repository layer over GenericClient | planned |
-| Chapter 15 — axum I: a database-backed JSON API | App state and extractors, errors as responses, transactional writes, keyset pagination and ETags | planned |
-| Chapter 16 — axum II: streaming, real-time and background work | NDJSON and CSV streaming, CSV import through COPY, server-sent events from NOTIFY, an outbox worker and graceful shutdown | planned |
-| Chapter 17 — Testing against a real database | Per-test databases from a template, rollback tests and their limits, HTTP tests, and concurrency tests | planned |
-| Chapter 18 — Capstone: stockroom end to end | The whole service: a request's life from HTTP to NOTIFY, the feature map, running it, and where to take it next | planned |
-| Appendix — cheat sheets, phrasebook and glossary | The API and type-mapping cheat sheets, SqlState codes with HTTP mappings, a sqlx/diesel phrasebook and a glossary | planned |
+| [Chapter 7 — One connection, many tasks: pipelining](book/07-pipelining.md) | Lazy futures and request order, join! and try_join!, sharing a Client, head-of-line blocking and bounded concurrency | current |
+| [Chapter 8 — Transactions and concurrency control](book/08-transactions.md) | Transactions and the borrow checker, isolation levels, savepoints, GenericClient, retries, locks and the oversell problem | current |
+| [Chapter 9 — Streaming rows and portals](book/09-streaming.md) | query_raw and RowStream, backpressure on a shared connection, portals, cursors and keyset pagination | current |
+| [Chapter 10 — Bulk data: COPY](book/10-copy.md) | COPY in and out in text, CSV and binary formats, failure mid-COPY, staging tables, and a bulk-load benchmark | current |
+| [Chapter 11 — LISTEN/NOTIFY and notices](book/11-listen-notify.md) | Driving the Connection with poll_message, notifications and notices, triggers, a dedicated listener and fan-out | current |
+| [Chapter 12 — Production connections: timeouts, cancellation, health and TLS](book/12-production-connections.md) | Why dropping a future is not cancelling, CancelToken, server-side timeouts, dead connections, failover and TLS | current |
+| [Chapter 13 — Connection pooling](book/13-pooling.md) | Why one client is not enough, a pool from scratch, deadpool-postgres, sizing, and what not to do with pooled connections | current |
+| [Chapter 14 — Schema, migrations and the data layer](book/14-data-layer.md) | Embedded migrations under an advisory lock, transactional DDL, and a repository layer over GenericClient | current |
+| [Chapter 15 — axum I: a database-backed JSON API](book/15-axum-api.md) | App state and extractors, errors as responses, transactional writes, keyset pagination and ETags | current |
+| [Chapter 16 — axum II: streaming, real-time and background work](book/16-axum-streaming.md) | NDJSON and CSV streaming, CSV import through COPY, server-sent events from NOTIFY, an outbox worker and graceful shutdown | current |
+| [Chapter 17 — Testing against a real database](book/17-testing.md) | Per-test databases from a template, rollback tests and their limits, HTTP tests, and concurrency tests | current |
+| [Chapter 18 — Capstone: stockroom end to end](book/18-capstone.md) | The whole service: a request's life from HTTP to NOTIFY, the feature map, running it, and where to take it next | current |
+| [Appendix — cheat sheets, phrasebook, glossary and ecosystem](book/19-appendix.md) | The API and type-mapping cheat sheets, SqlState codes with HTTP mappings, a sqlx/diesel phrasebook, a glossary, and the crates built on tokio-postgres | draft |
 <!-- book:contents:end -->
 
 ## Getting started

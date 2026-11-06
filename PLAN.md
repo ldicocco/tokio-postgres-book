@@ -5,9 +5,10 @@ The course goes from the first query to a production-shaped HTTP service built w
 Its form and voice follow the Rust course in
 another repository ("the reference course").
 
-Status: **Phases 0–2 and 3a done on 2026-11-06: the scaffold, stockroom, the apps, and Part I
-(Chapters 0–6, `current`, 59 runnable examples, the book PDF rendered). Next is Phase 3b (Part II:
-Chapters 7–12).** Phases and acceptance criteria are in §9; what building the software and
+Status: **All phases (0–4) done on 2026-11-06**: the scaffold, stockroom, the apps, Chapters 0–18
+and the appendix, all `current`; 156 runnable examples; every gate green; the book PDF (290
+pages) fresh. The §5.3 coverage audit found `host_path`, the keepalive setters and
+`tcp_user_timeout` without a runnable example, now added in §12.4. Phases and acceptance criteria are in §9; what building the software and
 writing the chapters taught is in §12.
 
 ---
@@ -258,19 +259,19 @@ They read `DATABASE_URL` from the environment or from `.env`.
 these):
 
 ```text
-pgload --rows 20000                         pgload --rows 2000 --delay-ms 1
+pgload --rows 20000                         pgload --rows 2000 --delay-ms 1     (re-run 2026-11-06)
 | Strategy                 | Time    | ×     | Time    | ×      |
-| INSERT, one at a time    | 0.770 s | 100.6 | 9.742 s | 202.8  |
-| INSERT, pipelined        | 0.118 s |  15.4 | 0.196 s |   4.1  |
-| INSERT … unnest, batches | 0.013 s |   1.7 | 0.053 s |   1.1  |
-| COPY, CSV                | 0.012 s |   1.6 | 0.052 s |   1.1  |
-| COPY, binary             | 0.008 s |   1.0 | 0.048 s |   1.0  |
+| INSERT, one at a time    | 0.761 s | 103.0 | 9.663 s | 220.1  |
+| INSERT, pipelined        | 0.118 s |  16.0 | 0.200 s |   4.6  |
+| INSERT … unnest, batches | 0.012 s |   1.7 | 0.047 s |   1.1  |
+| COPY, CSV                | 0.011 s |   1.5 | 0.052 s |   1.2  |
+| COPY, binary             | 0.007 s |   1.0 | 0.044 s |   1.0  |
 
-minipool --tasks 64 --pool-size 8           ops/s, no delay    ops/s, 2 ms delay
-one shared client (pipelined), query        58,709             9,259
-minipool, 8 connections, query              72,514             1,080
-deadpool, 8 connections, query              72,767             1,068
-minipool / deadpool, transaction            31,083 / 30,369    375 / 377
+minipool --tasks 64 --pool-size 8           ops/s, no delay    ops/s, 2 ms delay   (re-run 2026-11-06)
+one shared client (pipelined), query        63,403             8,350
+minipool, 8 connections, query              78,587             1,038
+deadpool, 8 connections, query              77,514               962
+minipool / deadpool, transaction            29,786 / 30,006    334 / 352
 ```
 
 ### 5.3 Feature coverage matrix
@@ -381,7 +382,7 @@ topic, where it appears **in stockroom**, and its exercises.
 
 - Who the book is for. What tokio-postgres is and what it is not: a driver, not an ORM.
 - Where it sits among the alternatives: `postgres` (its synchronous wrapper), sqlx,
-  diesel/diesel-async and SeaORM. Why learning it pays off: deadpool, refinery and clorinde all
+  diesel/diesel-async and SeaORM. Why learning it pays off: deadpool, refinery and Cornucopia all
   build on it.
 - How chapters are built: the callouts, the two code-block kinds, and the side-by-side columns.
 - Setup: a local PostgreSQL 18 (an installer, Homebrew or Docker) and `psql`; `DATABASE_URL`; the playground crate
@@ -617,7 +618,7 @@ topic, where it appears **in stockroom**, and its exercises.
 - 14.4 The repository layer: functions over `GenericClient` (or deadpool's version, which
   supports `prepare_cached`), with SQL kept in one place.
 - 14.5 Domain types at the boundary.
-- 14.6 Generating code from SQL with clorinde, in brief.
+- 14.6 Generating code from SQL with Cornucopia, in brief (Clorinde merged back into Cornucopia 1.0 in 2026; checked 2026-11-06).
 - In stockroom: `migrations/`, `db/migrate.rs` and `repo/`.
 
 **Chapter 15 — axum I: a database-backed JSON API**
@@ -680,7 +681,20 @@ topic, where it appears **in stockroom**, and its exercises.
 - D. A phrasebook from sqlx and diesel to tokio-postgres.
 - E. A glossary: simple and extended protocol, statement, portal, round trip, pipelining, MVCC,
   SSI, and others.
-- F. Further reading.
+- F. **The crates built on tokio-postgres** (requested 2026-11-06). The most-used reverse
+  dependencies on crates.io, researched when the appendix is written, never from memory. For
+  each crate:
+  - what it is for;
+  - which tokio-postgres types it exposes or wraps (`Client`, `GenericClient`, `ToSql`/`FromSql`,
+    the `Connection`);
+  - how it relates to the book's chapters, and when to choose it.
+
+  Candidates: `postgres` (the blocking wrapper), `postgres-types`/`postgres-protocol` (the
+  layers below), deadpool-postgres and bb8-postgres (pools), the TLS connectors
+  (postgres-native-tls, postgres-openssl, tokio-postgres-rustls), refinery (migrations),
+  Cornucopia (code generation; Clorinde merged back into it), diesel-async's PostgreSQL backend, and row-mapping
+  helpers (`postgres-from-row`, `tokio-pg-mapper`).
+- G. Further reading.
 
 ---
 
@@ -748,13 +762,11 @@ stockroom should change, change stockroom first, then rerun `excerpts`.
 
 ## 11. Risks and items to verify while writing
 
-- ~~**The `AsyncFnMut` retry helper over `Transaction<'_>`** (Chapter 8).~~ **Resolved
-  while building stockroom.** It compiles, but an axum handler that calls it does not: the
-  error is "implementation of `Send` is not general enough". Two forms work. stockroom uses the
-  first; Chapter 8 shows the error and both fixes, and §12 has the details.
-  - `for<'t> FnMut(&'t Transaction<'t>, &'t A) -> BoxFuture<'t, …>`, with the input passed as an
-    argument.
-  - `FnMut() -> Fut`, where the future owns its connection.
+- ~~**The `AsyncFnMut` retry helper over `Transaction<'_>`** (Chapter 8).~~ **Resolved.** It
+  works in axum handlers when the closure owns its data (`async move`); capturing a reference
+  to the caller's locals is what fails ("implementation of `Send` is not general enough").
+  stockroom uses it; Chapter 8 shows the failing and the working capture. §12 #6 has the
+  details.
 - ~~**tower-http 0.7**~~ **Checked:** `TimeoutLayer::new` is deprecated in favour of
   `TimeoutLayer::with_status_code(status, duration)`, and `RequestBodyLimitLayer::new` is
   unchanged.
@@ -782,7 +794,7 @@ named, as a runnable example where it can be one.
 | 3 | **PG 18 virtual generated columns may not use user-defined types**, domains over `integer` included ("generation expression uses user-defined type"). | 5 (aside) |
 | 4 | **`unnest($1::address[])` in `FROM` expands each composite into its fields**, which breaks `INSERT … SELECT * FROM unnest(…)`. In the select list, `unnest` keeps each value whole. | 5 |
 | 5 | **A query future borrows its parameter slice.** A temporary `&[&id]` inside `try_join!`, or inside a `map` closure for `try_join_all`, does not live long enough. Fixes: bind the slice to a name (`let params: &[&(dyn ToSql + Sync)] = &[&id];`), or build it inside an `async move` block. | 7 |
-| 6 | **`AsyncFnMut(&Transaction<'_>)` helpers cannot be used from axum handlers** ("implementation of `Send` is not general enough"). A `BoxFuture` states `Send`; the input must be passed as an argument, because a `for<'t>` future cannot capture borrowed locals ("does not live long enough"). | 8 |
+| 6 | **An `AsyncFnMut(&Transaction<'_>)` helper works from axum handlers and spawned tasks, as long as the closure owns what it uses.** The first diagnosis ("async closures can't be `Send` here") was wrong. Isolating six variants on rustc 1.99 showed the real trigger: a closure whose captures contain a reference (to the caller's locals, and, as Chapter 8's example showed, even a `&'static str`) fails with "implementation of `Send` is not general enough"; `async move` with owned data (`String`, a request struct) works, with tokio-postgres's and deadpool's transactions alike. stockroom switched from a `BoxFuture`-plus-argument helper to the `AsyncFnMut` one. | 8 |
 | 7 | **Two SERIALIZABLE transfers in opposite directions deadlock** when each updates "its" row first. PostgreSQL detects it only after `deadlock_timeout` (1 s), and retries then run out. Locking both rows first, in a fixed order, turns this into fast serialization failures that retry cleanly. The 40-transfer test went from failing in 9 s to passing 10/10 at about 0.7 s each. | 8 |
 | 8 | **Guarded `UPDATE … WHERE available >= $3` at READ COMMITTED needs no retries**: the re-check after a lock wait (EvalPlanQual) sees the committed row, even through a virtual column. Sorting lines by product id prevents deadlocks between orders. Oversell test: 50 out of 50 runs. | 8 |
 | 9 | **`MERGE` with a duplicated *new* key in its source fails with a unique violation**, not a cardinality violation (that error is for an *existing* row matched twice). Check for duplicates in the staging table first. | 10 |
@@ -810,4 +822,16 @@ named, as a runnable example where it can be one.
 | 31 | **`DbError`'s `Display` is multi-line** (`ERROR: … DETAIL: … HINT: …`), and the `detail` of a unique violation contains the duplicate value: decide where it may go. | 6 |
 | 32 | **`Statement::name()` is crate-private**; prepared statements are visible from SQL in `pg_prepared_statements` as `s0`, `s1` and so on (a global counter). | 4 |
 | 33 | **lagproxy's measured round trips**: 15.3 ms at a 5 ms delay, 26 ms at 10 ms; text queries cost exactly twice a prepared or `query_typed` one. | 4 |
+| 34 | **`drop(x)` on a value pinned with `pin!` drops only the `Pin<&mut _>`**; the value lives to the end of its block. An unfinished `RowStream` kept that way stalls the connection forever (the next query never returns); a `BinaryCopyInWriter` keeps its COPY open, and the next query waits behind it. Scope it in a block, or use `Box::pin`. Found twice, by a probe that hung and by a Chapter 10 example that timed out. | 9, 10 |
+| 35 | **An unread `RowStream` stalls its connection, and dropping it does not stop the query.** The server waits in `ClientWrite` (seen in `pg_stat_activity`); after the drop, the connection reads and discards the rest: 3 million rows cost 181 ms, against 0.55 ms for a portal that fetched 10 rows and committed. A portal saves work only if the plan is lazy: `FROM generate_series(…)` materializes first (111 ms). A portal's last batch reports `rows_affected` for that batch only (4 of 7). psql 18's `FETCH_COUNT` declares no cursor. | 9 |
+| 36 | **In 0.7.18, a `COPY … FROM STDIN` that the server rejects as it starts kills the connection** (missing table or column, `ON_ERROR ignore` with binary): `copy_in` sends Bind/Execute/Sync, the error arrives before CopyInResponse, the dropped sender then makes the connection send CopyFail + Sync, and the second ReadyForQuery is "unexpected message from server". Errors during the copy or from `finish` are fine. Upstream: rust-postgres issue #789 (open since 2021). stockroom is safe because it copies into a temp table created in the same transaction. | 10 |
+| 37 | **Binary COPY trusts the declared types.** A Rust value that does not match its declared `Type` fails on the client ("error serializing parameter 0"); a declared type of the wrong size fails on the server (08P01 "insufficient data left in message", with the line); a wrong type of the *same* size loads silently wrong data (`int4` 5 into a `real` column stored 7e-45). | 10 |
+| 38 | **COPY details:** `SinkExt::send` flushes per item, so each `send` is one CopyData message (the sink's 4 KiB gathering helps only with `feed`); `copy_out` yields one chunk per row; `ON_ERROR ignore` skips only data type errors (an extra column is fatal) and reports skips as notices; with a key duplicated in the source, `INSERT … ON CONFLICT DO UPDATE` always fails with 21000, while `MERGE` fails with 23505 for a new key and 21000 for an existing one (refines #9). | 10 |
+| 39 | **NOTIFY, measured:** the payload must be *shorter* than 8,000 bytes (exactly 8,000 fails with 22023); identical notifications in one transaction collapse to the first, in first-sent order; a listener inside a transaction receives nothing until it ends; notices arrive during execution and notifications at commit, so in one batch the notices come first; `RAISE DEBUG` is not sent at the default `client_min_messages`. deadpool awaits its connections (notifications dropped) and `RecyclingMethod::Clean` runs `UNLISTEN *`. A *bounded* forwarder that fills stops the driver, and with it the client's own statements (Exercise 11.3 shows a batch that never completes). | 11 |
+| 40 | **Timeouts and dead connections, measured:** an abandoned `pg_sleep(1)` stays `active` and delays the next query to ~1 s; `cancel_query` turns it into 57014 within ~5 ms; `idle_in_transaction_session_timeout` ends the session (the connection task gets the FATAL 25P03, the next query only "connection closed"); `transaction_timeout` (PG 17) reports FATAL 25P04 to the running statement, and 0.7.18's `SqlState` has no constant for 25P04; `lock_timeout` applies to advisory locks (55P03); `is_closed()` turned true 2.5 ms after `pg_terminate_backend`. `tcp_user_timeout` is applied on Linux only (`connect_socket.rs`). `target_session_attrs` runs `SHOW transaction_read_only` on each host (not `in_hot_standby`), and `connect_raw` skips it. | 12 |
+| 41 | **TLS, measured against the docker server:** tokio-postgres-rustls 0.14 sets no ALPN, so `sslnegotiation=direct` (PG 17+) is closed by the server until `alpn_protocols = [b"postgresql"]` is added to the rustls `ClientConfig`; `channel_binding=require` works over rustls with the RSA/SHA-256 test certificate and fails over plaintext ("server did not use channel binding"); `NoTls` + `sslmode=require` asks the server first ("server does not support TLS" from a TLS-less server, "no TLS implementation configured" from one that offers TLS); `sslmode=prefer` with a TLS connector against a TLS-less server connects in plaintext without a word. Connector crates checked 2026-11-06: tokio-postgres-rustls 0.14.0, postgres-native-tls 0.5.3, postgres-openssl 0.5.3, and a fork, tokio-postgres-rustls-improved 0.17.1. Resolved for Appendix F: tokio-postgres-rustls **0.13.0 parsed the certificate wrongly and never did channel binding** (hidden by the default `prefer`); fixed upstream in 0.14.0 (PR #32), which is why `require` works here. refinery's `tokio-postgres-rustls` feature still pins ^0.13. postgres-native-tls and postgres-openssl have `set_postgresql_alpn()` for direct TLS. | 12, A |
+| 42 | **deadpool, measured:** `Fast` *and* `Verified` hand the next borrower whatever session state was left (a `SET`, a temp table, a `LISTEN`); only `Clean` resets it. A connection terminated while idle was handed out by `Fast` and its first query failed on every run here; `Verified` gave a fresh one. `prepare_cached`: about 1 ms the first time, about 3 µs after. A cached `SELECT *` fails with 0A000 "cached plan must not change result type" after `ALTER TABLE … ADD COLUMN`, until `statement_caches.clear()`. The idle queue is FIFO by default (`QueueMode`); `build()` refuses timeouts without a runtime. deadpool-postgres 0.14.2 sits on deadpool **0.13.1**, and its `GenericClient` is **sealed and `#[async_trait]`** (CLAUDE.md had said native `async fn`; corrected from `generic_client.rs`). minipool re-run: one pipelined client 8× a pool of 8 at a 2 ms delay. | 13 |
+| 43 | **Migrations and code generation, checked:** refinery 0.10 takes no lock (its tokio-postgres driver opens one transaction per migration and nothing else), so concurrent startups need an advisory lock around `run_async`. Clorinde merged back into **Cornucopia 1.0** (2026) and is no longer maintained. `CREATE INDEX CONCURRENTLY` fails with 25001 inside a transaction *and* inside a multi-statement `batch_execute` (one implicit transaction); on a temporary table PostgreSQL builds non-concurrently anyway. | 14 |
+| 44 | **axum, measured:** a streaming body that does not own its `Object` made the next request (pool of 2) wait behind 200,000 unread rows; owning it fixed that. `TimeoutLayer` (200 ms) alone left the `pg_sleep` running; with a cancel-on-drop guard, nothing. `RequestBodyLimitLayer` answers 413 up front when `Content-Length` is over the limit. The outbox demo delivered `[1,2,3,4,5,4,5]` (at least once). An SSE body ends when its `take_until` token fires; `stockroom serve` exited 1.5 ms after SIGTERM with an SSE client attached, and the outbox delivered 16 ms after an order's creation. axum's own rejection statuses are 400 (syntax), 415 (content type) and 422 (shape). Handlers returning `Result<_, Response>` trip clippy's `result_large_err`: use a small error type. | 15, 16, 18 |
+| 45 | **Testing, measured:** a deadlock victim's locks are released at the error, before any `ROLLBACK`, so the other transaction proceeds (§17.7 does not hang); a write skew under `SERIALIZABLE` is reproducible step by step on two connections (40001 at the second `UPDATE` or `COMMIT`). stockroom builds order lines from a `BTreeMap` keyed by SKU, so its lock order is fixed even without the `sort_by_key` (an exercise premise had to change). `cargo test -p stockroom`: 10 unit + 34 database tests, each binary under 2 s. | 17 |
 

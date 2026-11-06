@@ -701,11 +701,18 @@ its own, `input_error`, so that it cannot spread by accident.
 2. **Retry or not?** For each, say whether a request that failed with it should be retried as
    is, retried after a delay, or not retried: `40001`, `40P01`, `55P03`, `57014`, `23505`,
    `53300`, `57P01`, a closed connection during `SELECT`, a closed connection during `COMMIT`.
+   *Hint:* ask of each whether the same request could succeed a moment later, and whether it may
+   already have taken effect.
 3. **A rule in a trigger.** Write a trigger that refuses to delete a product that has stock,
    with `RAISE EXCEPTION … USING ERRCODE = 'SR002'`, and map `SR002` to a 409 Conflict variant
    of your `AppError`.
+   *Hint:* a custom code has no named constant; compare `db.code().code()` with `"SR002"`, or
+   with `SqlState::from_code("SR002")`.
 4. **Find the first error.** A colleague's code logs "current transaction is aborted" every few
    minutes. What do you look for, and what is a likely cause in Rust code?
+   *Hint:* the useful line is the error *before* the first "aborted" one on that connection;
+   look for code that ignores a statement's error (`let _ =`, `.ok()`) and carries on in the
+   same transaction.
 
 ### Solutions
 

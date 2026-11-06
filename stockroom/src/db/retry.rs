@@ -3,7 +3,6 @@
 use std::time::Duration;
 
 use deadpool_postgres::{Object, Transaction};
-use futures_util::future::BoxFuture;
 use tokio_postgres::IsolationLevel;
 
 use crate::error::AppError;
@@ -14,29 +13,26 @@ pub const MAX_ATTEMPTS: u32 = 8;
 /// it fails with a serialization failure, a deadlock or a lock timeout ([`AppError::is_retryable`]),
 /// up to [`MAX_ATTEMPTS`] times.
 ///
-/// `work` gets the transaction and `input`, and returns a boxed future:
+/// `work` is an async closure, called once per attempt with that attempt's transaction:
 ///
 /// ```ignore
-/// in_transaction(&mut client, IsolationLevel::Serializable, &request, |tx, request| {
-///     repo::stock::transfer(tx, request).boxed()
+/// in_transaction(&mut client, IsolationLevel::Serializable, async move |tx| {
+///     repo::stock::transfer(tx, &request).await
 /// })
 /// ```
 ///
-/// Why not `impl AsyncFnMut(&Transaction<'_>) -> Result<T, AppError>`? It compiles, but a
-/// handler calling it does not: the compiler cannot prove that the closure's future is `Send`
-/// for every lifetime of the borrowed transaction ("implementation of `Send` is not general
-/// enough"), and axum needs `Send`. A `BoxFuture` states `Send` explicitly. And `input` is an
-/// argument rather than a capture because a future that must be valid for any lifetime `'t`
-/// cannot borrow the caller's locals; through the argument, it borrows them for `'t` only.
-pub async fn in_transaction<A, T>(
+/// **The closure must own what it uses** (`async move`, with owned data such as the request
+/// a handler extracted). Each call's future then borrows from the closure itself, which is
+/// what async closures are for. A closure that borrows the *caller's* locals instead (a
+/// `&request` captured from outside) compiles on its own, but not inside a spawned task or an
+/// axum handler, which need the future to be `Send`: the compiler cannot prove that for every
+/// lifetime of the transaction, and reports "implementation of `Send` is not general enough"
+/// (a current limitation of Rust's auto-trait inference, not of this code).
+pub async fn in_transaction<T>(
     client: &mut Object,
     isolation: IsolationLevel,
-    input: &A,
-    mut work: impl for<'t> FnMut(&'t Transaction<'t>, &'t A) -> BoxFuture<'t, Result<T, AppError>>,
-) -> Result<T, AppError>
-where
-    A: ?Sized + Sync,
-{
+    mut work: impl AsyncFnMut(&Transaction<'_>) -> Result<T, AppError>,
+) -> Result<T, AppError> {
     let mut attempt = 1;
     loop {
         let tx = client
@@ -44,7 +40,7 @@ where
             .isolation_level(isolation)
             .start()
             .await?;
-        let outcome = match work(&tx, input).await {
+        let outcome = match work(&tx).await {
             Ok(value) => tx.commit().await.map(|()| value).map_err(AppError::from),
             Err(error) => {
                 // Explicitly, rather than on drop, so the next attempt starts from a clean

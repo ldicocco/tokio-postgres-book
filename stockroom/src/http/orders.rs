@@ -4,7 +4,6 @@ use axum::Json;
 use axum::extract::Path;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use futures_util::FutureExt;
 use serde::Deserialize;
 use tokio_postgres::IsolationLevel;
 use uuid::Uuid;
@@ -19,12 +18,10 @@ pub async fn place(
     Db(mut db): Db,
     AppJson(order): AppJson<NewOrder>,
 ) -> Result<impl IntoResponse, AppError> {
-    let order = db::in_transaction(
-        &mut db,
-        IsolationLevel::ReadCommitted,
-        &order,
-        |tx, order| orders::place(tx, order).boxed(),
-    )
+    // `async move`: the closure owns the request, and each attempt borrows it from there.
+    let order = db::in_transaction(&mut db, IsolationLevel::ReadCommitted, async move |tx| {
+        orders::place(tx, &order).await
+    })
     .await?;
     Ok((StatusCode::CREATED, etag(order.version), Json(order)))
 }
@@ -46,13 +43,10 @@ pub async fn transition(
     headers: HeaderMap,
     AppJson(request): AppJson<TransitionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let input = (id, request.to, if_match(&headers)?);
-    let moved = db::in_transaction(
-        &mut db,
-        IsolationLevel::ReadCommitted,
-        &input,
-        |tx, &(id, to, expected)| orders::transition(tx, id, to, expected).boxed(),
-    )
+    let (to, expected) = (request.to, if_match(&headers)?);
+    let moved = db::in_transaction(&mut db, IsolationLevel::ReadCommitted, async move |tx| {
+        orders::transition(tx, id, to, expected).await
+    })
     .await?;
     Ok((etag(moved.order.version), Json(moved)))
 }

@@ -69,88 +69,88 @@ id = "pipelining"
 path = "07-pipelining.md"
 title = "Chapter 7 — One connection, many tasks: pipelining"
 summary = "Lazy futures and request order, join! and try_join!, sharing a Client, head-of-line blocking and bounded concurrency"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "transactions"
 path = "08-transactions.md"
 title = "Chapter 8 — Transactions and concurrency control"
 summary = "Transactions and the borrow checker, isolation levels, savepoints, GenericClient, retries, locks and the oversell problem"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "streaming"
 path = "09-streaming.md"
 title = "Chapter 9 — Streaming rows and portals"
 summary = "query_raw and RowStream, backpressure on a shared connection, portals, cursors and keyset pagination"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "copy"
 path = "10-copy.md"
 title = "Chapter 10 — Bulk data: COPY"
 summary = "COPY in and out in text, CSV and binary formats, failure mid-COPY, staging tables, and a bulk-load benchmark"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "listen-notify"
 path = "11-listen-notify.md"
 title = "Chapter 11 — LISTEN/NOTIFY and notices"
 summary = "Driving the Connection with poll_message, notifications and notices, triggers, a dedicated listener and fan-out"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "production-connections"
 path = "12-production-connections.md"
 title = "Chapter 12 — Production connections: timeouts, cancellation, health and TLS"
 summary = "Why dropping a future is not cancelling, CancelToken, server-side timeouts, dead connections, failover and TLS"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "pooling"
 path = "13-pooling.md"
 title = "Chapter 13 — Connection pooling"
 summary = "Why one client is not enough, a pool from scratch, deadpool-postgres, sizing, and what not to do with pooled connections"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "data-layer"
 path = "14-data-layer.md"
 title = "Chapter 14 — Schema, migrations and the data layer"
 summary = "Embedded migrations under an advisory lock, transactional DDL, and a repository layer over GenericClient"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "axum-api"
 path = "15-axum-api.md"
 title = "Chapter 15 — axum I: a database-backed JSON API"
 summary = "App state and extractors, errors as responses, transactional writes, keyset pagination and ETags"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "axum-streaming"
 path = "16-axum-streaming.md"
 title = "Chapter 16 — axum II: streaming, real-time and background work"
 summary = "NDJSON and CSV streaming, CSV import through COPY, server-sent events from NOTIFY, an outbox worker and graceful shutdown"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "testing"
 path = "17-testing.md"
 title = "Chapter 17 — Testing against a real database"
 summary = "Per-test databases from a template, rollback tests and their limits, HTTP tests, and concurrency tests"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "capstone"
 path = "18-capstone.md"
 title = "Chapter 18 — Capstone: stockroom end to end"
 summary = "The whole service: a request's life from HTTP to NOTIFY, the feature map, running it, and where to take it next"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "appendix"
 path = "19-appendix.md"
-title = "Appendix — cheat sheets, phrasebook and glossary"
-summary = "The API and type-mapping cheat sheets, SqlState codes with HTTP mappings, a sqlx/diesel phrasebook and a glossary"
-status = "planned"
+title = "Appendix — cheat sheets, phrasebook, glossary and ecosystem"
+summary = "The API and type-mapping cheat sheets, SqlState codes with HTTP mappings, a sqlx/diesel phrasebook, a glossary, and the crates built on tokio-postgres"
+status = "current"
