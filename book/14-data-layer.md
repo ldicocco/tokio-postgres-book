@@ -195,8 +195,8 @@ migration 2 (prices) was edited after it was applied
 ```
 
 The checksum is not about security; it catches the honest mistake of fixing a migration in
-place after it has run somewhere, which leaves databases that ran the old text and databases
-that ran the new one with different schemas and the same version number.
+place after it has run somewhere. That leaves databases that ran the old text and databases
+that ran the new one with different schemas under the same version number.
 
 ## 14.2 Running migrations safely
 
@@ -286,11 +286,11 @@ automatic migrations and run them by hand.
 
 **Several instances, one migration.** When three replicas of a service start together and each
 migrates on startup, two of them must wait. A session-level advisory lock does that without a
-table to lock: `pg_advisory_lock(key)` blocks until no other session holds `key`, and the lock
-is held across the transactions that follow until `pg_advisory_unlock`, or until the session
-ends, which matters if the instance crashes mid-migration. The second instance then reads
+table to lock: `pg_advisory_lock(key)` blocks until no other session holds `key`. The lock then
+lasts across the transactions that follow, until `pg_advisory_unlock` or the end of the session,
+which matters if the instance crashes mid-migration. Each instance that waited then reads
 `schema_migrations`, finds everything applied, and moves on. The `tokio::join!` in §14.1 is
-that scenario in miniature. stockroom's key is a constant everyone agrees on:
+that scenario in miniature. stockroom's key is a constant every instance agrees on:
 
 ~~~rust
 // stockroom/src/db/migrate.rs (excerpt)
@@ -306,17 +306,17 @@ Three more details from stockroom's runner are worth copying:
   lock_timeout = 0` on its own connection first.
 - **Clear the type cache afterwards.** tokio-postgres caches what it learned about custom types
   (Chapter 5); after a migration changes one, `client.clear_type_cache()` makes the next query
-  look it up afresh.
+  on that connection look it up afresh.
 - **Log the notices.** `CREATE TABLE IF NOT EXISTS` reports "relation … already exists, skipping"
   as a notice. stockroom's `db::connect` drives its connection with `poll_message` (Chapter 11)
   and logs every notice, so a migration's server-side messages end up in the service's log.
 
 Migrate either at startup, under the lock (simple, and what stockroom's `serve` does unless
-started with `--migrate false`), or in a
-separate deployment step before the new version starts (`stockroom migrate`), which keeps a
-failed migration from taking down every starting instance. Either way, write migrations that
-the *previous* version of the code can live with, because during a rolling deployment both run
-at once: add a column before using it, stop using it before dropping it.
+started with `--migrate false`), or in a separate deployment step before the new version starts
+(`stockroom migrate`), which keeps a failed migration from taking down every starting instance.
+Either way, write migrations that the *previous* version of the code can live with, because
+during a rolling deployment both run at once: add a column before using it, stop using it
+before dropping it.
 
 ## 14.3 refinery, the ready-made alternative
 
@@ -343,35 +343,38 @@ for migration in report.applied_migrations() {
 It does what §14.1's runner does, with more options: `set_grouped(true)` runs all pending
 migrations in one transaction, `set_target` stops at a version, and migrations can also be Rust
 functions that return SQL. Through deadpool, `run_async` wants the `tokio_postgres::Client`
-underneath the `Object` (`object.deref_mut().deref_mut()`, as its README shows).
+underneath the `Object` (`object.deref_mut().deref_mut()`, as refinery's README shows).
 
 What it does not do is lock. Its tokio-postgres driver opens a transaction per migration and
 nothing else (`refinery_core/src/drivers/tokio_postgres.rs`), so with several instances
 starting together, take an advisory lock around `run_async` yourself, exactly as §14.1 does, or
 migrate in a separate deployment step. This book writes its own runner because it is short and
-teaches both of those lessons; refinery is a sound choice when you would rather not own one.
+teaches both of §14.2's lessons, a transaction per migration and the advisory lock; refinery is
+a sound choice when you would rather not own one.
 
 ## 14.4 The repository layer
 
-stockroom keeps every SQL statement in `repo/`, one module per aggregate (`stores`, `products`,
-`stock`, `orders`, `reports`, `outbox`), as plain async functions. Handlers never contain SQL;
+stockroom keeps the SQL that requests run in `repo/`, one module per aggregate (`stores`,
+`products`, `stock`, `orders`, `reports`, `outbox`), as plain async functions; the command-line
+tools and the migration runner keep theirs next to their own code. Handlers never contain SQL;
 they call repository functions. Three conventions make that work.
 
 **Functions take any client.** A function that only reads or writes should not care whether it
 runs on a pooled connection or inside a transaction someone else opened. tokio-postgres's
 `GenericClient` (Chapter 8) expresses "a `Client` or a `Transaction`"; deadpool-postgres has a
-`GenericClient` of its own, implemented by `Object` and deadpool's `Transaction`, which adds
-`prepare_cached`. Both are sealed and `#[async_trait]` traits: you can write functions generic
-over them, `&impl GenericClient`, but not implement them for your own types, nor use them as
-`dyn GenericClient`.
+`GenericClient` of its own, which adds `prepare_cached` and is implemented by `Object` and
+deadpool's `Transaction`. Both are sealed and `#[async_trait]` traits: you can write functions
+generic over them, `&impl GenericClient`, but not implement them for your own types, nor use
+them as `dyn GenericClient`.
 
 **Statements are prepared once per connection.** `prepare_cached` (Chapter 13) means each
-function's SQL is parsed and planned once per pooled connection, and then costs no extra round
-trip.
+function's SQL is parsed once per pooled connection, and then costs no extra round trip (the
+server still decides between custom and generic plans as Chapter 4 described).
 
 **Rows become types in one place.** Each type implements `TryFrom<&Row>`, reading columns by
-name, so a function's last line converts, and a column added to the `SELECT` but not to the
-type is noticed in one place.
+name, so a function's last line converts. A field that the type reads but the `SELECT` lacks
+fails in one place, with the column's name; a column added to the `SELECT` but not read is
+simply ignored.
 
 ```rust
 use deadpool_postgres::{GenericClient, Manager, Pool, Runtime};
@@ -530,7 +533,7 @@ which is why constraint names in stockroom are chosen with care and listed in
 ## 14.6 Generating the data layer: Cornucopia
 
 Hand-written repository functions are a few lines each, and stockroom has a few dozen. A larger
-code base may prefer to generate them. [Cornucopia](https://cornucopia-rs.github.io/cornucopia/)
+codebase may prefer to generate them. [Cornucopia](https://cornucopia-rs.github.io/cornucopia/)
 (1.0.1, checked 2026-11-06) generates Rust from annotated SQL files:
 
 ```sql
@@ -599,8 +602,9 @@ Clorinde should follow Cornucopia's migration guide.
 ## Exercises
 
 1. **A concurrent index.** Extend §14.1's runner so that a migration can be marked
-   `transactional: false`, and runs such migrations statement by statement outside a
-   transaction. What should the runner record if the second of three statements fails?
+   `transactional: false`, and so that the runner applies such a migration statement by
+   statement, outside a transaction. What should the runner record if the second of three
+   statements fails?
    *Hint:* the `schema_migrations` row is the last thing to write, and only on success.
 2. **Down migrations.** stockroom has none. Argue for or against adding them, considering a
    migration that drops a column.
@@ -611,8 +615,8 @@ Clorinde should follow Cornucopia's migration guide.
    *Hint:* write the condition as `tags @> ARRAY[$1]`, which a GIN index on `tags` can serve;
    `$1 = ANY(tags)` means the same but cannot use one.
 4. **Where does the check fail?** Insert a product with the SKU `chair` (lower case) three ways:
-   through `Sku::parse`, with a `&str` and `$1::text`, and from psql. Where is each one stopped,
-   and with what error?
+   through `Sku::parse`, as a `&str` parameter (without and with `$1::text`), and from psql.
+   Where is each one stopped, and with what error?
    *Hint:* Chapter 5's finding about parameters that target a domain column.
 
 ### Solutions

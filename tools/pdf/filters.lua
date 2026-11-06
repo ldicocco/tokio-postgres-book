@@ -1,5 +1,6 @@
 -- Pandoc Lua filter: the book/ Markdown -> the Typst body that tools/pdf/doc.typ lays out.
--- Copied unchanged (apart from this header) from the reference course's PDF pipeline.
+-- Copied unchanged (apart from this header) from the PDF pipeline of the Rust course whose style
+-- this book follows.
 --
 --  * "# Chapter 2 — Title"    -> a level-1 heading numbered "2" with the supplement
 --                               [Chapter]; the template sets "CHAPTER 2" above the title

@@ -5,16 +5,17 @@ use std::pin::pin;
 
 use axum::Json;
 use axum::body::{Body, Bytes};
-use axum::extract::Path;
+use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use deadpool_postgres::{GenericClient, Object};
+use deadpool_postgres::GenericClient;
 use futures_util::{Stream, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_postgres::RowStream;
 
-use super::{AppJson, AppQuery, Db, etag, if_match};
+use super::{AppJson, AppQuery, AppState, Db, etag, if_match};
+use crate::db::CancelOnDrop;
 use crate::domain::Sku;
 use crate::repo::products::{self, ImportReport, NewProduct, Product, ProductPatch};
 use crate::{AppError, db};
@@ -121,10 +122,11 @@ pub async fn create_batch(
 
 /// Every product as newline-delimited JSON, streamed row by row: memory use stays flat
 /// however large the catalog.
-pub async fn stream(Db(db): Db) -> Result<Response, AppError> {
+pub async fn stream(State(state): State<AppState>, Db(db): Db) -> Result<Response, AppError> {
     let stmt = db.prepare_cached(products::ALL_IN_SKU_ORDER).await?;
     let rows = db.query_raw(&stmt, db::slice_iter(&[])).await?;
-    let body = Body::from_stream(ndjson(db, rows));
+    let guarded = CancelOnDrop::new(db, state.tls.clone());
+    let body = Body::from_stream(ndjson(guarded, rows));
     Ok(([(header::CONTENT_TYPE, "application/x-ndjson")], body).into_response())
 }
 
@@ -132,30 +134,35 @@ pub async fn stream(Db(db): Db) -> Result<Response, AppError> {
 /// last row is sent. `RowStream` does not borrow the client: had `db` gone back to the pool
 /// when the handler returned, the next borrower's queries would queue behind these rows.
 ///
+/// If the client hangs up first, axum drops the body before the end. The connection would
+/// still read and discard every remaining row, so `CancelOnDrop` cancels the query and
+/// discards the connection rather than handing it, busy, to the next request.
+///
 /// Once the first bytes are out, the status is 200 for good; an error after that can only
 /// cut the body short, which the client sees as a truncated response.
-fn ndjson(db: Object, rows: RowStream) -> impl Stream<Item = Result<Bytes, AppError>> + Send {
+fn ndjson(db: CancelOnDrop, rows: RowStream) -> impl Stream<Item = Result<Bytes, AppError>> + Send {
     async_stream::try_stream! {
-        let _checked_out = db;
         let mut rows = pin!(rows);
         while let Some(row) = rows.try_next().await? {
             let mut line = serde_json::to_vec(&Product::try_from(&row)?)?;
             line.push(b'\n');
             yield Bytes::from(line);
         }
+        drop(db.finish()); // every row sent: the connection goes back to the pool
     }
 }
 
 /// The catalog as CSV, straight from `COPY … TO STDOUT`: PostgreSQL formats it, and the
-/// handler only passes the bytes on.
-pub async fn export_csv(Db(db): Db) -> Result<Response, AppError> {
+/// handler only passes the bytes on. The connection is guarded as for `stream`.
+pub async fn export_csv(State(state): State<AppState>, Db(db): Db) -> Result<Response, AppError> {
     let copy = db.copy_out(products::EXPORT_CSV).await?;
+    let guarded = CancelOnDrop::new(db, state.tls.clone());
     let body = Body::from_stream(async_stream::stream! {
-        let _checked_out = db;
         let mut copy = pin!(copy);
         while let Some(chunk) = copy.next().await {
             yield chunk;
         }
+        drop(guarded.finish()); // the whole file sent: back to the pool
     });
     Ok((
         [

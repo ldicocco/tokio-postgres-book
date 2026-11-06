@@ -12,7 +12,7 @@ queries on the same client are in flight at once.
 
 That one feature explains most of tokio-postgres's design: why `Client` methods take `&self`,
 why the connection is a separate task, and why a single client can serve a whole program.
-It also has limits, and the last part of the chapter is about them: a slow query holds up
+It also has limits, and the second half of the chapter is about them: a slow query holds up
 everything behind it, and a transaction cannot be pipelined with anyone else's work.
 
 ---
@@ -51,7 +51,7 @@ one request each, sent in the order you poll them.
 
 ## 7.2 `join!`: N queries, about one round trip
 
-Awaiting queries one after another sends each request only after the previous answer arrived.
+Awaiting queries one after another sends each request only after the previous answer has arrived.
 Polling them together with `join!` (or `try_join!`, which stops at the first error) puts all
 the requests on the wire at once:
 
@@ -115,6 +115,8 @@ async fn main() -> Result<(), tokio_postgres::Error> {
 one by one: 59.7ms, joined: 16.2ms
 ```
 
+(Through lagproxy at its 5 ms delay, against PostgreSQL 18.6 on localhost.)
+
 Four round trips became one. The server did exactly the same work in both cases, in the same
 order; what disappeared is the waiting on the network in between.
 
@@ -168,10 +170,10 @@ async fn main() -> Result<(), tokio_postgres::Error> {
 
 It printed "20 tasks in 12.6ms": about one round trip through the proxy, for twenty
 queries. That is a service in miniature: many concurrent requests, each with a little
-database work, sharing one connection, none of them waiting for the others' round trips. Chapter 13 measures
-it against a connection pool over the same slow network. The shared client won by almost an
-order of magnitude for independent queries, because a pool of eight allows eight requests in
-flight, and one pipelined connection allows them all.
+database work, sharing one connection, none of them waiting for the others' round trips.
+Chapter 13 measures this against a connection pool, also through lagproxy: for independent
+queries the shared client wins by almost an order of magnitude, because a pool of eight allows
+eight requests in flight, and one pipelined connection allows them all.
 
 > **Rust refresher:** `Arc<Client>` is all the sharing takes, with no `Mutex`, because nothing
 > needs `&mut Client`. The connection task is the only owner of the socket, and the client
@@ -230,13 +232,16 @@ async fn main() -> Result<(), tokio_postgres::Error> {
 behind the slow query: 451.3ms; on another connection: 1.3ms
 ```
 
+(PostgreSQL 18.6 on localhost.)
+
 A program that shares one client should therefore keep slow work (reports, exports, anything
 that scans a lot) off it. Give that work a connection of its own, or put it behind a pool
 (Chapter 13), and use `statement_timeout` (Chapter 12) to bound what can hold up the queue.
 
 > **Pitfall:** a large result consumed slowly is also slow work. The connection delivers a
 > query's rows into a small buffer and stops reading the socket when that buffer is full, so a
-> `RowStream` that you read slowly holds up everything behind it. Chapter 9 measures this.
+> `RowStream` that you read slowly holds up everything behind it. Chapter 9 produces this stall
+> on purpose (§9.3).
 
 ## 7.5 Many queries, a few at a time
 
@@ -294,8 +299,8 @@ async fn main() -> Result<(), tokio_postgres::Error> {
 On one connection the server answers in order anyway, so the difference is small here, but it
 matters as soon as the futures do more than one query.
 
-> **Pitfall:** the comment in that example is the error you will meet first when pipelining a
-> list. A future returned by `query_one` borrows its parameter slice, so `|sku|
+> **Rust refresher:** the comment in that example describes the error you will meet first when
+> pipelining a list. A future returned by `query_one` borrows its parameter slice, so `|sku|
 > client.query_one(&price, &[sku])` does not compile: the slice `&[sku]` is a temporary inside
 > the closure. Put the call in an `async move` block (as above), or bind the slice to a variable
 > that outlives the futures. stockroom's code has both, with a comment each time.
@@ -311,8 +316,8 @@ let the database do the dependent steps in one statement (a join, a subquery, `R
 `WITH` clause).
 
 **An error in one query does not stop the others.** Each request is its own unit of work, so
-the server runs every request it received, and with `try_join!` the futures you stop waiting
-for still did their work:
+the server runs every request it receives. `try_join!` stops waiting at the first error, but
+the requests it abandons have already been sent, and still do their work:
 
 ```rust
 use tokio_postgres::types::Type;
@@ -392,10 +397,10 @@ async fn main() -> Result<(), tokio_postgres::Error> {
 This is exactly why `Client::transaction` takes `&mut self`. A `Transaction` borrows the client
 mutably, so while it exists, nothing else can use that client, and the borrow checker turns this
 bug into a compile error. A client behind an `Arc` cannot give out `&mut`, so it cannot start a
-transaction at all. Transactions need a connection of their own for their duration: the next
-chapter's subject, and the main reason for connection pools.
+transaction at all. Transactions, the next chapter's subject, need a connection of their own
+for as long as they run, and that is the main reason for connection pools.
 
-### Side by side — concurrent queries
+### Side by side — *concurrent queries*
 
 The task: run two independent queries without waiting for the first answer before sending the
 second.
@@ -503,8 +508,8 @@ let reserved = future::try_join_all(lines.iter().map(|l| async move {
 "Sent in this order" is a promise with consequences. The lines are sorted by product id so that
 every order locks stock rows in the same order and two orders cannot deadlock (Chapter 8). The
 promise holds because `reserve` is a prepared statement, so each reservation is a single
-request, and `try_join_all` polls its futures in list order. With SQL text, §7.1 showed, the
-order would vary.
+request, and `try_join_all` polls its futures in list order. With SQL text, as §7.1 showed,
+the order would vary.
 
 ## Summary
 
@@ -545,8 +550,8 @@ order would vary.
 
 ### Solutions
 
-**1.** Ten round trips one after another (five prepares, five executes), so about 150 ms at a
-5 ms delay. Joined, the five prepares go out together and the five executes go out as their
+**1.** Ten round trips one after another (five prepares, five executes): at the 15 ms or so
+that Chapter 4 measured per round trip with a 5 ms delay, about 150 ms. Joined, the five prepares go out together and the five executes go out as their
 prepares complete: about two round trips, 30 ms. Preparing the five statements once
 (`prepare_cached`, as stockroom does elsewhere) would make it one round trip.
 

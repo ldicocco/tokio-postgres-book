@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Click-and-collect for a small retail chain: the capstone of the tokio-postgres book"
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [features]
 default = []

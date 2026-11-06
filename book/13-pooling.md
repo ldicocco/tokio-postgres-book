@@ -7,11 +7,11 @@ Part II showed how much one connection can do: it pipelines, streams, copies and
 web service still needs more than one, because a request that runs a transaction needs a
 connection to itself, a slow report must not hold up everyone else, and a connection that dies
 should take one request down with it, not all of them. Opening a connection per request is the
-wrong answer: it costs a TCP handshake, perhaps TLS, authentication and a new server process,
-several round trips and milliseconds before the first query.
+wrong answer: a TCP handshake, perhaps TLS, authentication and a new server process add up to
+several round trips, and milliseconds, before the first query.
 
 A *pool* keeps a set of open connections and lends them out. This chapter builds one from
-scratch to show every decision a pool makes, then uses the one stockroom uses,
+scratch to show every decision a pool makes, then turns to the one stockroom uses,
 deadpool-postgres, and measures when a pool helps and when one shared client does better.
 
 ---
@@ -27,7 +27,8 @@ Three things break it:
 - **Head-of-line blocking.** The server runs one statement at a time per session. A slow query,
   or a slowly read stream, holds up every request behind it (Chapters 7 and 9).
 - **Failure isolation.** One connection is one point of failure. If it dies, every task using
-  it fails at once; if one task's query is cancelled, the others must not be affected.
+  it fails at once, and a cancel request meant for one task's query can stop another's
+  (Chapter 12).
 
 A pool answers all three: each borrower gets a session of its own, for as long as it needs it.
 It does not answer them for free, and §13.5 shows the price.
@@ -94,9 +95,8 @@ The borrowed connection is a guard, `Conn`, which derefs to `Client` (mutably to
 pub struct Conn {
     client: Option<Client>,
     pool: Arc<Inner>,
-    // Declared last, so it is dropped last: the client is back on the idle stack before the
-    // permit lets the next caller in. The other way round, that caller could find the stack
-    // empty and open a connection too many.
+    // Released after `Drop::drop` has put the client back on the idle stack, so the next
+    // caller the permit lets in finds it there instead of opening a connection too many.
     _permit: OwnedSemaphorePermit,
 }
 
@@ -113,11 +113,12 @@ impl Drop for Conn {
 
 [apps/minipool/src/lib.rs](../apps/minipool/src/lib.rs)
 
-> **Rust refresher:** struct fields are dropped in declaration order, after the struct's own
-> `Drop::drop` runs. `Conn::drop` pushes the client back first; then `pool` is dropped, then
-> `_permit`, which releases the semaphore. The comment on `_permit` is load-bearing: in the
-> opposite order, a waiter let in by the permit can find the stack still empty and open a
-> connection beyond `max_size`.
+> **Rust refresher:** a struct's own `Drop::drop` runs first, and only then are its fields
+> dropped, in declaration order. So `Conn::drop` has pushed the client back before `_permit`
+> releases the semaphore, whatever the order of the fields. The order matters only between
+> fields: had the client been returned by a field's own `Drop` instead, that field would have to
+> be declared before `_permit`, or a waiter let in by the permit could find the stack still
+> empty and open a connection beyond `max_size`.
 
 Two more lessons hide in this code. What goes back to the pool is *whatever the borrower left
 behind*: a dropped `Transaction` has already queued its `ROLLBACK`, but a `SET`, a temporary
@@ -128,8 +129,8 @@ task has seen, which §13.3 puts to the test.
 
 [deadpool-postgres](https://docs.rs/deadpool-postgres/0.14.2/deadpool_postgres/) (0.14.2, on
 deadpool 0.13) is the same design, finished: a `Manager` that knows how to create and recycle
-tokio-postgres connections, and a generic `Pool` with timeouts, hooks and metrics. It is built
-from a `tokio_postgres::Config`, a TLS connector, and a `ManagerConfig` that holds the one
+tokio-postgres connections, and a generic `Pool` with timeouts, hooks and metrics. The `Manager`
+is built from a `tokio_postgres::Config`, a TLS connector, and a `ManagerConfig` that holds the one
 decision deadpool leaves to you, the
 [`RecyclingMethod`](https://docs.rs/deadpool-postgres/0.14.2/deadpool_postgres/enum.RecyclingMethod.html):
 
@@ -204,11 +205,12 @@ Verified: application_name "left behind", temp table true, listening on 1
 Clean: application_name "", temp table false, listening on 0
 ```
 
-So `Fast` is right only for code that leaves nothing behind, which is a property of your code,
-not of the pool. stockroom promises it (§ In stockroom); a service that cannot, wants `Clean`.
+So `Fast`, like `Verified`, is right only for code that leaves nothing behind, which is a
+property of your code, not of the pool. stockroom makes that promise (§ In stockroom); a service
+that cannot make it wants `Clean`.
 
 The difference between `Fast` and `Verified` shows when a connection dies while it is idle in
-the pool: `Fast` can hand it out before its connection task has read the server's goodbye:
+the pool. `Fast` can hand it out before its connection task has read the server's goodbye:
 
 ```rust
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod, Runtime};
@@ -263,11 +265,12 @@ Fast: first query failed: db error
 Verified: first query succeeded
 ```
 
-(The `Fast` line depends on a race, and it lost on every run here: `pg_terminate_backend`
+(The `Fast` line depends on a race, which `Fast` lost on every run here: `pg_terminate_backend`
 returns before the backend's goodbye has reached the client.) `Verified` pays one round trip on
-every checkout for that guarantee. On localhost that is noise; across a 2 ms network it is a
-2 ms tax on every request. Many services choose `Fast` and handle the rare failure with a retry,
-or the HTTP 503 it becomes; a service whose database fails over often chooses `Verified`.
+every checkout for that guarantee. On localhost that is noise; on a network with a 2 ms round
+trip it is a 2 ms tax on every request. Many services choose `Fast` and handle the rare failure
+with a retry, or the HTTP 503 it becomes; services whose database can fail over tend to choose
+`Verified`.
 
 The `Pool` itself is configured with a builder:
 
@@ -297,8 +300,8 @@ pub fn create(config: Config, tls: MakeTls, max_size: usize) -> Result<Pool, Bui
 
 The three timeouts bound the three ways `get()` can wait: for a free slot, for a new connection
 to open, and for the recycling check. They need a runtime to run their timers, hence
-`.runtime(Runtime::Tokio1)`; without one, a configured timeout makes `get()` fail with
-`NoRuntimeSpecified`. With none configured, `get()` waits as long as it takes, which under
+`.runtime(Runtime::Tokio1)`; without one, `build()` refuses a configuration with timeouts
+(`BuildError::NoRuntimeSpecified`). Without any timeouts, `get()` waits as long as it takes, which under
 overload means forever. deadpool also has `post_create`, `pre_recycle` and `post_recycle` hooks,
 for a `SET` that every new session should run, say.
 
@@ -308,8 +311,8 @@ for a `SET` that every new session should run, say.
 [`Object`](https://docs.rs/deadpool-postgres/0.14.2/deadpool_postgres/type.Client.html)
 (deadpool-postgres also calls it `Client`), which goes back to the pool when dropped. It derefs
 to deadpool's `ClientWrapper`, which derefs to `tokio_postgres::Client`, so every method of the
-earlier chapters works on it, and `&object` coerces to `&tokio_postgres::Client`. The wrapper
-adds three things:
+earlier chapters works on it, and `&object` coerces to `&tokio_postgres::Client`.
+deadpool-postgres adds three things:
 
 - **`prepare_cached(sql)`**: a per-connection statement cache. The first call prepares (one
   round trip); later calls with the same SQL on the same connection return the cached
@@ -443,9 +446,9 @@ What the numbers say:
   lagproxy at a 2 ms delay. Only more connections, or fewer round trips, raise that ceiling.
 - **minipool and deadpool are equal.** The cost is in the round trips, not the pool.
 
-So size a pool for the transactions in flight at once, and no larger: roughly the number of
-concurrent requests that need a session to themselves, times the round trips each holds it
-for. Throughput beyond that comes from fewer round trips per transaction (pipelining inside it,
+So size a pool for the transactions in flight at once, and no larger: roughly the rate at
+which requests need a session to themselves, times how long each holds it (three round trips,
+here), which is Little's law. Throughput beyond that comes from fewer round trips per transaction (pipelining inside it,
 Chapter 7; doing the work in one statement), not from more connections.
 
 ## 13.6 bb8, and PgBouncer
@@ -473,8 +476,8 @@ let conn = pool.get().await?; // a PooledConnection that derefs to tokio_postgre
 **PgBouncer** is a pool outside the process: a proxy that many service instances connect to,
 multiplexing them onto a few server connections. In *transaction* pooling mode, the most useful
 one, a client's consecutive transactions may run on different server connections, so session
-state does not survive between transactions, which rules out everything §13.7 lists, and
-traditionally named prepared statements too. PgBouncer 1.21 (2023) added support for
+state does not survive between transactions. That rules out everything §13.7 lists, and it
+used to rule out named prepared statements too. PgBouncer 1.21 (2023) added support for
 protocol-level named prepared statements, and since 1.24 it is on by default
 (`max_prepared_statements = 200`), so tokio-postgres's `prepare` and deadpool's
 `prepare_cached` work through current versions. Behind an older PgBouncer, or one configured
@@ -485,12 +488,12 @@ types in one round trip, and never depends on the server remembering anything.
 
 A pooled connection is borrowed, and the next borrower inherits its session. So:
 
-- **No `LISTEN`.** deadpool awaits its connections' tasks, so notifications are dropped, and
-  `Clean` unlistens anyway. Listen on a dedicated connection (Chapter 11).
+- **No `LISTEN`.** deadpool drives each connection by simply awaiting it, so notifications are
+  dropped, and `Clean` unlistens anyway. Listen on a dedicated connection (Chapter 11).
 - **No streams that outlive their `Object`.** A `RowStream` or `CopyOutStream` does not borrow
   the connection; if the `Object` returns to the pool while one is unread, the next borrower's
-  queries queue behind it. Move the `Object` into the stream (Chapter 9's
-  `let _checked_out = db;`).
+  queries queue behind it. Move the `Object` into the stream, and cancel and discard it if the
+  stream is dropped early (Chapter 9's "In stockroom").
 - **No session `SET`.** Use `SET LOCAL` inside a transaction, which ends with it, or startup
   options on the pool's `Config` (Chapter 12), which every connection gets.
 - **No session-level advisory locks or temporary tables that outlive a transaction.** Use
@@ -592,7 +595,7 @@ impl FromRequestParts<AppState> for Db {
 [stockroom/src/http/mod.rs](../stockroom/src/http/mod.rs)
 
 A pool that cannot lend a connection in time is an overloaded service, and `AppError` says so
-with 503 rather than an error page:
+with a 503, not a 500:
 
 ~~~rust
 // stockroom/src/error.rs (excerpt)
@@ -631,7 +634,7 @@ deployment, not the code.
   pool of 8; transactions need a pool, and their throughput is bounded by round trips per
   transaction. Size pools for concurrent transactions, within `max_connections`.
 - Never leave session state on a pooled connection: no `LISTEN`, no unread streams, no session
-  `SET`, no session locks or temp tables. PgBouncer's transaction mode enforces the same rules;
+  `SET`, no session locks or temp tables. PgBouncer's transaction mode needs the same discipline;
   `query_typed` works behind any pooler.
 
 ## Exercises
@@ -641,15 +644,16 @@ deployment, not the code.
    discarded instead of reused, and test it with a pool of one.
    *Hint:* recycling fails when the query errors; `DO $$ BEGIN IF … THEN RAISE EXCEPTION …; END
    IF; END $$` raises one, and `current_setting('application_name')` reads the setting.
-2. **Measure `Verified`.** Run §13.4's checkout in a loop of 1,000 through lagproxy with a
-   1 ms delay, once with `Fast` and once with `Verified`. Predict the difference first.
+2. **Measure `Verified`.** Time 1,000 checkouts through lagproxy with a 1 ms delay, from
+   §13.3's `pool_of_one` built once with `Fast` and once with `Verified`. Predict the difference
+   first.
    *Hint:* one round trip per checkout.
 3. **Too small.** stockroom's pool has 5 seconds of `wait_timeout`. With `--pool-size 2`, run
-   ten concurrent `GET /reports/sales?delayMs=3000` requests. What do the clients see, and in
+   ten concurrent `GET /reports/sales?from=2026-01-01&to=2026-12-31&delayMs=3000` requests. What do the clients see, and in
    what order?
    *Hint:* each request holds its connection for three seconds.
 4. **minipool, verified.** minipool's `Options::verify` calls `check_connection()` on every
-   checkout. Repeat §13.3's terminate experiment against minipool with `verify` on and off.
+   idle connection it reuses. Repeat §13.3's terminate experiment against minipool with `verify` on and off.
    *Hint:* minipool is a library; add it to the playground with a path dependency.
 
 ### Solutions
@@ -708,10 +712,11 @@ timer overhead, roughly 5 to 8 ms at a 1 ms delay on the machine of Chapter 4. S
 checkouts take several seconds longer than with `Fast`, whose checkout makes no round trip at
 all.
 
-**3.** Two requests get a connection at once and finish after about three seconds. Two more were
-waiting and get the freed connections, finishing after about six seconds. The remaining six
-have waited five seconds by then, and receive 503 ("no database connection became free in
-time") at the five-second mark, without ever running their query.
+**3.** Two requests get a connection at once and finish after about three seconds; two of the
+waiting requests then get the freed connections. The remaining six are still waiting when
+`wait_timeout` expires at the five-second mark, and receive 503 ("no database connection became
+free in time") without ever running their query. The second pair finishes last, after about six
+seconds.
 
 **4.** With `verify` off, minipool behaves like `Fast`: the killed connection is lent, and the
 first query fails. With `verify` on, `check_connection()` fails on the dead connection, minipool

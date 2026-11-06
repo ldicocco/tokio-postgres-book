@@ -534,7 +534,7 @@ old label list. Two consequences follow:
 - The first query on a fresh connection that involves a custom type pays for the lookup: a
   few extra round trips, once. A pool hides this cost behind connection reuse (Chapter 13).
 
-### Side by side — a PostgreSQL enum
+### Side by side — *a PostgreSQL enum*
 
 The task: define an `order_status` enum, store a value, and read it back as a typed value.
 

@@ -13,3 +13,6 @@ __pycache__/
 # only the whole book, book/tokio-postgres-book.pdf, is tracked.
 /book/[0-9][0-9]-*.pdf
 /book/[0-9][0-9]-*.pdf.source-sha256
+
+# Personal, machine-specific instructions for Claude Code
+CLAUDE.local.md

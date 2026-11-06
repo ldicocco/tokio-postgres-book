@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Five ways to load many rows into PostgreSQL, timed side by side"
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }

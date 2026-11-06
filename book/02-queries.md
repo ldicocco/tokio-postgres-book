@@ -517,7 +517,7 @@ For everything with values from outside, use the extended protocol, that is, eve
 > and binary values possible, and it needs one round trip more unless the statement was
 > prepared before. Chapter 4 counts them.
 
-### Side by side — inserting a row and reading it back
+### Side by side — *inserting a row and reading it back*
 
 The task: insert a product given as three values, and get back what was stored.
 

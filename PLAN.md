@@ -2,11 +2,11 @@
 
 This plan is for a course book on [`tokio-postgres`](https://docs.rs/tokio-postgres/latest/tokio_postgres/).
 The course goes from the first query to a production-shaped HTTP service built with axum.
-Its form and voice follow the Rust course in
-another repository ("the reference course").
+Its form and voice follow an existing Rust course that is not part of this repository ("the
+reference course").
 
 Status: **All phases (0–4) done on 2026-11-06**: the scaffold, stockroom, the apps, Chapters 0–18
-and the appendix, all `current`; 156 runnable examples; every gate green; the book PDF (290
+and the appendix, all `current`; 156 runnable examples; every gate green; the book PDF (293
 pages) fresh. The §5.3 coverage audit found `host_path`, the keepalive setters and
 `tcp_user_timeout` without a runnable example, now added in §12.4. Phases and acceptance criteria are in §9; what building the software and
 writing the chapters taught is in §12.
@@ -58,8 +58,8 @@ the style contract.
     alone. An excerpt's first line is a comment naming the file it comes from.
 - The reference course has a **TS/C++ → Rust phrasebook** appendix. This book has an appendix
   of cheat sheets instead (§7, Appendix).
-- **One book PDF**, rendered with the same pandoc → Typst pipeline, copied from
-  the reference course. Unlike the reference course, chapters get no PDFs of their own in
+- **One book PDF**, rendered with the reference course's pandoc → Typst pipeline, copied into
+  `tools/pdf/`. Unlike the reference course, chapters get no PDFs of their own in
   the repository; any chapter can be rendered locally on demand (`book.py pdf N`, into
   `target/book/`).
 
@@ -801,18 +801,18 @@ named, as a runnable example where it can be one.
 | 10 | **CSV COPY writes NULL as an empty field and an empty string as `""`.** Export "no tags" as NULL (`nullif`) so that it reads back the same. | 10 |
 | 11 | **COPY data errors (class 22) carry the line**, in `DbError::where_()`: "COPY product_import, line 3, column price_cents: …". `HEADER MATCH` (PG 15) gives "column name mismatch in header line field 2". | 6, 10 |
 | 12 | **Cancelling an abandoned query has a race**: the cancel request is asynchronous, and the connection, back in the pool, may already be running someone else's query. `CancelOnDrop` therefore discards the connection (`Object::take`) after cancelling. Verified: a 1 s router timeout left no `pg_sleep` running. | 12, 16 |
-| 13 | **A streaming body must own its pooled connection.** `RowStream` and `CopyOutStream` do not borrow the client; if the `Object` returns to the pool, the next borrower's queries queue behind the remaining rows. | 9, 16 |
+| 13 | **A streaming body must own its pooled connection.** `RowStream` and `CopyOutStream` do not borrow the client; if the `Object` returns to the pool, the next borrower's queries queue behind the remaining rows. Added 2026-11-06 after review: when the client hangs up mid-stream, the dropped stream leaves the connection discarding the remaining rows, so stockroom's stream and CSV export hold it through `CancelOnDrop` (test `a_client_that_hangs_up_mid_stream_leaves_no_busy_connection`). | 9, 16 |
 | 14 | **SSE streams must end at shutdown** (`take_until(shutdown.cancelled_owned())`), or `with_graceful_shutdown` waits forever. Verified: SIGTERM stopped the server in under 50 ms with an SSE client attached. | 16 |
 | 15 | **`clone_on_copy`**: `NoTls` is `Copy` and rustls's connector is only `Clone`, so feature-generic code needs the clones and one crate-level `allow`. | 12 |
 | 16 | **`LISTEN` reconnect needs a resync**: anything notified while disconnected is lost. The listener publishes `Resync` after each successful `LISTEN`. Tested with `pg_terminate_backend`. | 11 |
 | 17 | **Per-test databases from a template** (`CREATE DATABASE … TEMPLATE`): cloning fails with 55006 while a session lingers on the template, so the harness retries. `Drop` cannot be async, so the cleanup runs on a thread with its own runtime. A full suite of 43 tests runs in about 6 s. | 17 |
-| 18 | **`Config::host` and `Config::port` *append*** to the lists of hosts and ports to try, so "redirecting" a parsed configuration silently keeps the original host first. Build a new `Config`, or use `connect_raw` with a stream you opened (pgload, minipool). | 1, 12 |
+| 18 | **`Config::host` and `Config::port` *append*** to the lists of hosts and ports to try, so "redirecting" a parsed configuration silently keeps the original host first. Build a new `Config`, or use `connect_raw` with a stream you opened (pgload). | 1, 12 |
 | 19 | **`connect_raw` uses the stream as given.** `connect` sets `TCP_NODELAY` itself (`connect_socket.rs:27`); with `connect_raw` that is your job, along with keepalives and timeouts. | 12 |
 | 20 | **Tokio sleeps are late by about 1.3 ms on macOS** (1 ms took 2.28 ms; 10 ms took 11.87 ms), so lagproxy's delay is a lower bound. Examples must compare timings with each other, not with constants. | 4, 7 |
 | 21 | **Over latency, one pipelined client beats a pool** for independent queries: 64 tasks with a 2 ms delay ran 9,259 ops/s on one shared client against about 1,075 on a pool of 8, because the pool allows only 8 requests in flight. On localhost, pools are slightly faster thanks to server-side parallelism. Pools exist for transactions and isolation, not raw query throughput. | 7, 13 |
 | 22 | **Bulk loading:** one `INSERT` at a time is about 100× slower than binary COPY on localhost, and about 200× with a 2 ms round trip. Pipelining recovers most of it, and `unnest` batches come within 10% of COPY. (Table in §5.2.) | 10 |
 | 23 | **A pool that checks only `is_closed()` can hand out a connection that died while idle**, until its connection task has seen the server's FATAL message. A `check_connection()` on checkout costs a round trip and closes the gap. This is deadpool's `Fast` versus `Verified`. | 13 |
-| 24 | **Field order in a pool guard matters:** the client must go back to the idle stack *before* the semaphore permit is released, or a waiter can open a connection beyond `max_size`. | 13 |
+| 24 | **The client must be back on the idle stack before the semaphore permit is released**, or a waiter can open a connection beyond `max_size`. In minipool this holds whatever the field order, because `Conn`'s `Drop::drop` returns the client before any field (the permit included) is dropped; field order would matter only if a field's own `Drop` returned the client. (Corrected 2026-11-06: the first version said field order mattered.) | 13 |
 | 25 | **A `NOTIFY` in a rolled-back transaction is never delivered**, and a committed one is delivered at commit. Quoted channel names are case-sensitive and match `pg_notify('Name', …)` exactly; unquoted `LISTEN Name` folds to lower case. | 11 |
 | 26 | **`SimpleQueryMessage::CommandComplete` carries only a row count**, not the command tag: DDL reports 0, and there is no "CREATE TABLE" to print as psql does. | 2 |
 | 27 | **Writing Part I corrected several "known" facts**, each now pinned by a runnable example or a captured output: `SimpleQueryMessage::RowDescription` arrived in 0.7.11, not 0.7.10; `now() - $1` infers `timestamptz`, not `interval`; `WHERE x IN ($1)` with an array prepares fine (`$1` is `text`) and fails on the client; a wrong-type panic message does not include the cause; psql 18 prints `\conninfo` as a table. | all |

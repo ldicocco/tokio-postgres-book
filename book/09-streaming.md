@@ -11,7 +11,7 @@ row is read.
 
 This chapter is about the other ways to read a result. A `RowStream` hands you rows as they
 arrive. A *portal* goes further: the server produces only the rows you ask for, a batch at a
-time. SQL has its own version of portals, cursors, and HTTP has its own answer, keyset
+time. SQL has its own version of portals, called cursors, and HTTP has its own answer, keyset
 pagination. Each comes with a cost, and the most important one is easy to miss: a stream that
 you read slowly holds up its whole connection.
 
@@ -24,7 +24,8 @@ you read slowly holds up its whole connection.
 it reads the stream this chapter is about into a vector and hands you the vector. Two costs
 follow, and both grow with the result:
 
-- **Memory.** Every row is held at once. Chapter 3's `Row::raw_size_bytes` measures it.
+- **Memory.** Every row is held at once; the example below measures it with
+  `Row::raw_size_bytes`.
 - **Latency.** Nothing reaches your code until the last row has arrived.
 
 ```rust
@@ -55,7 +56,7 @@ async fn main() -> Result<(), tokio_postgres::Error> {
 
 Twenty-two megabytes is affordable once. It is not affordable per request when a hundred
 clients ask for the export at the same time, and it grows with the table. The fix is to
-handle each row and let it go before the next one arrives.
+handle each row and let it go before taking the next one.
 
 ## 9.2 `query_raw` and `RowStream`
 
@@ -75,7 +76,7 @@ where
 Instead of a slice of `&(dyn ToSql + Sync)`, it takes any iterator of values that can lend a
 `&dyn ToSql` ([`BorrowToSql`](https://docs.rs/postgres-types/0.2.14/postgres_types/trait.BorrowToSql.html)),
 as long as the iterator knows its length: the parameter count is checked against the
-statement before anything is sent. The `_raw` family shares that signature: `query_raw`,
+prepared statement before the query itself is sent. The `_raw` family shares that signature: `query_raw`,
 `execute_raw`, and, on a `Transaction`, `bind_raw` (§9.4). `query_typed_raw` takes
 `(value, Type)` pairs instead.
 
@@ -202,8 +203,9 @@ async fn main() -> Result<(), tokio_postgres::Error> {
 > value, like `try_collect` above or `try_fold`, pin it themselves.
 
 > **Pitfall:** `drop(rows)` on a stream pinned with `pin!` drops the `Pin<&mut _>`, a reference,
-> and the stream itself lives on until the end of the enclosing block. It compiles without a
-> warning, and §9.3 shows what an unread stream does to its connection: the next query on the
+> and the stream itself lives on until the end of the enclosing block. rustc compiles it without
+> a word; clippy's `drop_non_drop` lint, on by default, does flag it, one more reason to run
+> clippy. §9.3 shows what an unread stream does to its connection: the next query on the
 > client never finishes. To end a stream early, let it go out of scope (put it in a block), or
 > pin it with `Box::pin`, which owns it, so that `drop` really drops it.
 
@@ -213,13 +215,14 @@ A stream does not make the server wait for you. The server runs the query and se
 fast as the socket accepts them. What makes it wait is that tokio-postgres stops *reading* the
 socket when you stop reading the stream.
 
-> **Protocol lens:** each request's responses go to the caller through a channel created with a
-> capacity of one (`mpsc::channel(1)` in `client.rs`). When that channel is full, the connection
+> **Protocol lens:** each request's responses go to the caller through a small bounded channel
+> (`mpsc::channel(1)` in `client.rs`: a futures channel, with room for a batch of messages or
+> two). When that channel is full, the connection
 > task parks the message it is holding and stops reading the socket. The operating system's
 > receive buffer fills, TCP tells the server to stop sending, and the server's backend blocks
 > in a write, which `pg_stat_activity` shows as the wait event `ClientWrite`. Memory stays flat
-> all the way down. The price is that one socket serves the whole connection: nothing else
-> queued on it can be answered until the stream moves again.
+> all the way down. The price is that every request on the connection shares that socket:
+> nothing else queued on it can be answered until the stream moves again.
 
 Here is that state, produced on purpose: read one row of a large result, then try another
 query on the same client:
@@ -287,8 +290,8 @@ Three consequences shape the rest of this chapter and Part III:
 
 - **A `RowStream` does not borrow the `Client`.** The compiler lets you hold it for as long as
   you like, pass it to another task, or return it from a function, and the connection stalls
-  for all that time. A slow consumer is a slow query, as Chapter 7 put it, as far as everyone
-  else on the connection is concerned.
+  for all that time. To everyone else on the connection, a slow consumer is a slow query, as
+  Chapter 7 put it.
 - **Stream on a connection of its own.** Never stream on a client that other tasks share. In
   a service, the stream should own the pooled connection it reads from, and keep it until the
   last row (stockroom's `/products/stream`, at the end of this chapter).
@@ -331,8 +334,9 @@ async fn main() -> Result<(), tokio_postgres::Error> {
 ```
 
 If the total is a multiple of the batch size, the last full batch is followed by an empty one,
-which the same `<` test handles. `bind_raw` and `query_portal_raw` are the iterator and stream
-versions. Two details of the stream version, and the portal's lifetime, are worth seeing once:
+which the same `<` test handles. `bind_raw` takes its parameters as an iterator, like
+`query_raw`, and `query_portal_raw` returns a `RowStream` instead of a `Vec`. Two details of the
+stream version, and the portal's lifetime, are worth seeing once:
 
 ```rust
 use futures_util::TryStreamExt;
@@ -430,7 +434,7 @@ stopping after the first rows: stream 181.19775ms, portal 554.125µs
 ```
 
 (Measured on localhost against PG 18.6, in a debug build. The stream's cost is the server
-producing three million rows that nobody reads.)
+producing three million rows that nobody uses.)
 
 > **SQL lens:** a portal stops early only if the plan can. `generate_series` in the select list
 > produces one row at a time, as the example needs. In `FROM`, as
@@ -443,7 +447,7 @@ A portal keeps its transaction open, and with it a snapshot, for as long as you 
 it. On a busy database that has a cost of its own: the rows that other transactions delete or
 update cannot be vacuumed away while your snapshot might still need them. Keep portal
 transactions as short as the job allows, and read-only. stockroom's export, at the end of this
-chapter, uses the isolation level made for this job.
+chapter, uses the transaction mode made for this job.
 
 ## 9.5 The SQL alternative: `DECLARE` and `FETCH`
 
@@ -518,8 +522,8 @@ form offers:
 - **`SCROLL`**, to move backwards or jump (`FETCH PRIOR`, `FETCH ABSOLUTE 100`, `MOVE`).
 - **A cursor driven from SQL**, by a PL/pgSQL function or by another tool that only speaks SQL.
 
-Otherwise prefer `bind`: the parameters are typed and sent separately, no names to invent, and
-the portal is closed for you when it is dropped. Each `FETCH` is also a statement in its own
+Otherwise prefer `bind`: the parameters are typed and sent separately, there are no names to
+invent, and the portal is closed for you when it is dropped. Each `FETCH` is also a statement in its own
 right, so it pays the prepare round trip of Chapter 4 unless you prepare it once.
 
 ## 9.6 Keyset pagination: the HTTP answer
@@ -601,9 +605,9 @@ Three rules make keyset pagination correct, not just fast:
 - **The key must be unique.** If the sort column has duplicates (a price, a date), add a
   tie-breaker and compare row values: `WHERE (price, id) > ($1, $2) ORDER BY price, id`, with an
   index on `(price, id)`. Exercise 3 builds it.
-- **The client gets an opaque cursor, not the key.** Encode the last key (base64 of JSON, for
-  instance) so that clients cannot start building URLs from your column values, and so that
-  you can change the key later.
+- **The client gets an opaque cursor, not the key.** (This *cursor* is a token in the URL, not
+  §9.5's SQL cursor.) Encode the last key (base64 of JSON, for instance) so that clients cannot
+  start building URLs from your column values, and so that you can change the key later.
 - **Ask for one row more than the page.** If it comes back, there is a next page; drop it and
   return a cursor. If not, this was the last page, and no empty request is needed to find out.
 
@@ -756,40 +760,47 @@ pool, starts the query, and hands the stream to the response body:
 
 ~~~rust
 // stockroom/src/http/products.rs (excerpt)
-pub async fn stream(Db(db): Db) -> Result<Response, AppError> {
+pub async fn stream(State(state): State<AppState>, Db(db): Db) -> Result<Response, AppError> {
     let stmt = db.prepare_cached(products::ALL_IN_SKU_ORDER).await?;
     let rows = db.query_raw(&stmt, db::slice_iter(&[])).await?;
-    let body = Body::from_stream(ndjson(db, rows));
+    let guarded = CancelOnDrop::new(db, state.tls.clone());
+    let body = Body::from_stream(ndjson(guarded, rows));
     Ok(([(header::CONTENT_TYPE, "application/x-ndjson")], body).into_response())
 }
 
 /// The body stream owns the pooled connection, so the connection stays checked out until the
 /// last row is sent. `RowStream` does not borrow the client: had `db` gone back to the pool
 /// when the handler returned, the next borrower's queries would queue behind these rows.
-fn ndjson(db: Object, rows: RowStream) -> impl Stream<Item = Result<Bytes, AppError>> + Send {
+///
+/// If the client hangs up first, axum drops the body before the end. The connection would
+/// still read and discard every remaining row, so `CancelOnDrop` cancels the query and
+/// discards the connection rather than handing it, busy, to the next request.
+fn ndjson(db: CancelOnDrop, rows: RowStream) -> impl Stream<Item = Result<Bytes, AppError>> + Send {
     async_stream::try_stream! {
-        let _checked_out = db;
         let mut rows = pin!(rows);
         while let Some(row) = rows.try_next().await? {
             let mut line = serde_json::to_vec(&Product::try_from(&row)?)?;
             line.push(b'\n');
             yield Bytes::from(line);
         }
+        drop(db.finish()); // every row sent: the connection goes back to the pool
     }
 }
 ~~~
 
 [stockroom/src/http/products.rs](../stockroom/src/http/products.rs)
 
-The line `let _checked_out = db;` is the whole of §9.3's advice in one statement. The handler
-returns as soon as the query has started, long before the last row is sent. If `db`, the pooled
-connection, were dropped with the handler, it would go back to the pool with a stream still
-running on it, and the next request to borrow it would wait behind the rest of the catalog.
-Moving it into the body's stream keeps it checked out until the last row is written, or until
-the client hangs up and axum drops the body. The underscore name keeps the value alive; a bare
-`_` would drop it on the spot. And the backpressure works end to end: a slow HTTP client slows
-the body, which slows the stream, which leaves the server waiting in `ClientWrite`, all without
-buffering.
+The handler returns as soon as the query has started, long before the last row is sent. If
+`db`, the pooled connection, were dropped with the handler, it would go back to the pool with a
+stream still running on it, and the next request to borrow it would wait behind the rest of the
+catalog. Moving it into the body's stream keeps it checked out until the last row is written.
+The other way the body ends is the client hanging up: axum drops the body, and with it the
+`RowStream`, but the connection still reads and discards the remaining rows (§9.3). So the
+stream holds the connection through Chapter 12's `CancelOnDrop`: `finish` after the last row
+hands it back to the pool, and a drop before that cancels the query and discards the
+connection. And the backpressure works end to end: a slow HTTP client slows the body, which
+slows the stream, which leaves the server waiting in `ClientWrite`, all without buffering the
+catalog.
 
 `stockroom export products` reads the same catalog through a portal instead, in batches of
 `--batch` rows (500 by default), inside the transaction mode made for long reads:
@@ -836,8 +847,9 @@ async fn products(
 Why a portal here and a stream in the HTTP handler? The export writes to a file, so one round
 trip per 500 rows is noise, and the batches give it natural points to flush. The HTTP handler
 wants the first byte out as soon as possible and lets TCP set the pace. Both hold one
-connection for the whole job; the portal also holds one snapshot, which is what makes the
-export consistent.
+connection for the whole job, and each reads one snapshot, as any single statement does. What
+the export's `SERIALIZABLE, READ ONLY, DEFERRABLE` transaction adds is the guarantee that its
+snapshot is free of serialization anomalies, kept across every fetch.
 
 The paged listing, `GET /products?cursor=…&limit=…`, uses §9.6's keyset pagination, with
 the one-extra-row trick and an opaque cursor:
@@ -879,9 +891,9 @@ let next_cursor = if items.len() as i64 > limit {
 - The `_raw` methods take an `ExactSizeIterator` of `BorrowToSql` values. Use `slice_iter` for
   mixed parameters, a plain collection for parameters of one type, and
   `Vec<Box<dyn ToSql + Sync + Send>>` for parameters decided at run time.
-- `RowStream` is `!Unpin`: pin it with `pin!` (on the stack, cannot be dropped early) or
-  `Box::pin` (owned, movable). `rows_affected()` is `None` until the stream ends.
-- An unread stream stalls its whole connection: the response channel is bounded at one, the
+- `RowStream` is `!Unpin`: pin it with `pin!` (on the stack, lives until the end of its block)
+  or `Box::pin` (owned, movable, can be dropped early). `rows_affected()` is `None` until the stream ends.
+- An unread stream stalls its whole connection: the response channel is small and bounded, the
   connection stops reading, and the server waits in `ClientWrite`. Stream only on a connection
   that nothing else uses, and keep that connection with the stream.
 - Dropping a stream does not stop the query; the server still produces every row. A portal
@@ -912,7 +924,7 @@ let next_cursor = if items.len() as i64 > limit {
 4. **The cost of a consistent export.** stockroom's export keeps one transaction open for the
    whole catalog. What does a long-lived snapshot cost the rest of the database? How would
    exporting with keyset pages change that, and what would the export lose?
-   *Hint:* think of `VACUUM`, and of a product renamed halfway through the export.
+   *Hint:* think of `VACUUM`, and of a product whose SKU changes halfway through the export.
 
 ### Solutions
 

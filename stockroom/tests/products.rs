@@ -254,3 +254,50 @@ async fn the_ndjson_stream_has_one_line_per_product() {
         app.state.pool.status().size
     );
 }
+
+/// A client that hangs up mid-stream must not leave a busy connection in the pool: the
+/// connection would keep reading the rest of the rows, and the next request would wait behind
+/// them. The query is cancelled and the connection discarded instead.
+#[tokio::test]
+async fn a_client_that_hangs_up_mid_stream_leaves_no_busy_connection() {
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+
+    let db = TestDb::new().await;
+    let app = db.app(2);
+    // Enough rows that the stream cannot have finished when the client goes away.
+    db.client()
+        .await
+        .batch_execute(
+            "INSERT INTO products (sku, name, price_cents)
+             SELECT 'SKU' || lpad(i::text, 6, '0'), 'Product ' || i, 100
+             FROM generate_series(1, 50000) i",
+        )
+        .await
+        .unwrap();
+
+    let response = app
+        .router
+        .clone()
+        .oneshot(
+            axum::http::Request::get("/products/stream")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let mut body = response.into_body();
+    body.frame().await.unwrap().unwrap(); // the first rows arrive...
+    drop(body); // ...and the client hangs up
+
+    // The streaming connection is discarded, not returned to the pool.
+    let pool = &app.state.pool;
+    let mut waited = 0;
+    while pool.status().size > 0 && waited < 100 {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        waited += 1;
+    }
+    assert_eq!(pool.status().size, 0, "{:?}", pool.status());
+    // And the next request gets a fresh connection at once.
+    assert_eq!(app.get("/products?limit=1").await.status, StatusCode::OK);
+}

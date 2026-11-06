@@ -4,16 +4,16 @@
 > Next: [Chapter 13 — Connection pooling](13-pooling.md)
 
 On a laptop, a connection is a socket to `localhost` that never fails, and every query
-finishes. In production, queries run long because a table grew, locks are held by someone
-else, the network between the service and the database drops packets or disappears, the
-database fails over to a replica, and the traffic crosses networks that you do not own, which
-is why it must be encrypted.
+finishes. In production, queries run long because a table grew or someone else holds a lock;
+the network between the service and the database drops packets or disappears; the database
+fails over to a replica; and the traffic crosses networks that you do not own, which is why it
+must be encrypted.
 
 This chapter is about the settings and techniques that keep a service healthy through all of
 that: what really happens when you stop waiting for a query, how to cancel one, how to make the
 server enforce limits, how to notice that a connection has died, how to connect to several
 hosts, and how to connect over TLS, which tokio-postgres treats differently from libpq. The
-last section opens the connection yourself, with `connect_raw`.
+last section shows how to open the connection yourself, with `connect_raw`.
 
 ---
 
@@ -86,10 +86,10 @@ names the backend by its process ID and a secret key the server handed out at st
 [`Client::cancel_token`](https://docs.rs/tokio-postgres/0.7.18/tokio_postgres/struct.Client.html#method.cancel_token)
 returns a
 [`CancelToken`](https://docs.rs/tokio-postgres/0.7.18/tokio_postgres/struct.CancelToken.html)
-holding exactly that: the key, plus how to reach the server. It is `Clone` and `Send`, and it
-does not borrow the client, so it can go to whichever task decides that a query has run long
-enough. `cancel_query(tls)` connects and sends the request; the statement then fails with
-SQLSTATE 57014, `query_canceled`:
+holding exactly that: the process ID and the key, plus how to reach the server. It is `Clone`
+and `Send`, and it does not borrow the client, so it can go to whichever task decides that a
+query has run long enough. `cancel_query(tls)` connects and sends the request; the statement
+then fails with SQLSTATE 57014, `query_canceled`:
 
 ```rust
 use std::sync::Arc;
@@ -201,11 +201,11 @@ it is not, and they are the first line of defence:
 | `idle_in_transaction_session_timeout` | a session idle inside a transaction for longer than this | 25P03, the whole session |
 | `transaction_timeout` (PG 17+) | a transaction older than this, idle or not | 25P04, the whole session |
 
-There are three places to set them. `SET LOCAL` changes a setting until the end of the current
-transaction, which is the right scope for "this report may take 30 seconds". A startup option
-in `Config::options` (`-c name=value`, as `PGOPTIONS` does for psql) sets it for every
-statement of the session from the first. And `ALTER ROLE … SET` makes it the default for every
-session of a role.
+Besides a plain `SET`, which lasts for the rest of the session, there are three places to set
+them. `SET LOCAL` changes a setting until the end of the current transaction, which is the
+right scope for "this report may take 30 seconds". A startup option in `Config::options`
+(`-c name=value`, as `PGOPTIONS` does for psql) sets it for every statement of the session
+from the first. And `ALTER ROLE … SET` makes it the default for every session of a role.
 
 ```rust
 use tokio_postgres::error::SqlState;
@@ -301,7 +301,8 @@ connection closed
 
 The first line comes from `playground::connect`'s connection task, which received the server's
 FATAL message (25P03) as the connection's final error; the query sees only "connection closed".
-`transaction_timeout` reports its FATAL 25P04 to the running statement. Note that 0.7.18's
+`transaction_timeout` ends the session the same way; measured with a statement running (a
+`pg_sleep`), that statement received the FATAL 25P04 as its error. Note that 0.7.18's
 `SqlState` has no named constant for 25P04, which is newer than the crate's table:
 compare `code().code()` with `"25P04"` if you need to match it.
 
@@ -358,12 +359,12 @@ is_closed() after 2.552166ms
 connection that died a moment ago and whose task has not noticed yet. Chapter 13 weighs the two
 for a pool.
 
-**Silently.** A network path that disappears (a NAT that forgets the connection, a cable, a
+**Silently.** A network path that disappears (a NAT that forgets the connection, a pulled cable, a
 cloud load balancer's idle timeout, a virtual machine that freezes) sends nothing. An idle
 connection then looks alive forever, and a query sent on it waits until TCP gives up, which
-takes many minutes by default. Three settings shorten that:
+takes many minutes by default. These `Config` settings shorten that:
 
-| `Config` setting | Default in 0.7.18 | What it detects |
+| `Config` setting | Default in 0.7.18 | What it controls |
 |---|---|---|
 | `keepalives(bool)` | `true` | turns TCP keepalive probes on |
 | `keepalives_idle(Duration)` | 2 hours | how long an idle connection waits before the first probe |
@@ -372,12 +373,13 @@ takes many minutes by default. Three settings shorten that:
 | `connect_timeout(Duration)` | none | how long one connection attempt may take, per host |
 
 With keepalives probing after 30 seconds, every 10 seconds, 3 times, a dead idle connection
-is found within about a minute, as in stockroom's settings. A query timeout (§12.3) covers
-the case keepalives cannot: a connection that is not idle but waiting for an answer.
+is found within about a minute, as in stockroom's settings. Keepalives probe only while no
+data is unacknowledged; data sent and never acknowledged is `tcp_user_timeout`'s case (on
+Linux), and a server that is alive but slow is a query timeout's (§12.3).
 
-In code, with each setting spelled out, plus `host_path`, which connects through a Unix-domain
-socket instead of TCP where the server offers one (its directory is `unix_socket_directories` in
-the server's configuration; this book's server uses `/tmp`):
+Here they are in code, each spelled out, plus `host_path`, which connects through a Unix-domain
+socket instead of TCP where the server offers one. The socket's directory is the server's
+`unix_socket_directories` setting, which is `/tmp` on this book's server:
 
 ```rust
 use std::path::Path;
@@ -528,10 +530,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 error connecting to server: database is not read only
 ```
 
-The `host` call in the middle of that example is a trap worth remembering: `Config::host` and
-`Config::port` add to the lists, so "parse the URL, then point it somewhere else" keeps the
-original host first and silently connects there. Build a new `Config`, as the example does,
-when you need different hosts.
+The `appended` configuration at the start of that example shows a trap worth remembering:
+`Config::host` and `Config::port` add to the lists, so "parse the URL, then point it somewhere
+else" keeps the original host first and silently connects there. Build a new `Config`, as the
+example does, when you need different hosts.
 
 ## 12.6 TLS
 
@@ -551,8 +553,9 @@ server's certificate. tokio-postgres splits the job in two. The connection strin
 And the **connector** you pass to `connect` decides *how* TLS is done, including whether the
 certificate is trusted. `NoTls` cannot do TLS at all. The rustls, native-tls and OpenSSL
 connectors verify the certificate chain and the host name by default, which is libpq's
-`verify-full`. So `sslmode=require` with a verifying connector is the secure setting, and the
-two common mistakes look like this, against this book's server (which has TLS turned off):
+`verify-full`. So `sslmode=require` with a verifying connector is the secure setting. The
+example tries it next to the two common mistakes, against this book's server (which has TLS
+turned off):
 
 ```rust
 use std::sync::Arc;
@@ -701,9 +704,10 @@ ssl: true, TLSv1.3, TLS_AES_256_GCM_SHA384
 ```
 
 To run it yourself: `docker/gen-certs.sh && docker compose up -d --wait`, then set
-`TLS_DATABASE_URL` and `TLS_CA_FILE` as in `.env.example`, and point `DATABASE_URL` at the
-former. In production, trust the roots your platform provides (stockroom loads them with
-`rustls-native-certs`) or the CA of your database provider.
+`TLS_DATABASE_URL` and `TLS_CA_FILE` as in `.env.example`, and run the example with
+`DATABASE_URL` set to the value of `TLS_DATABASE_URL`. In production, trust the roots your
+platform provides (stockroom loads them with `rustls-native-certs`) or the CA of your database
+provider.
 
 Verification fails in the two ways it should. An unknown certificate authority, and a
 certificate for another name, are both refused during the handshake; `hostaddr` makes the
@@ -794,8 +798,9 @@ Two newer options make TLS connections faster and harder to intercept:
 
 - **`sslnegotiation=direct`** (PG 17+ servers). Normally the client first asks "do you speak
   TLS?" (an *SSLRequest*) and waits for the answer before starting the handshake. With direct
-  negotiation it starts the handshake at once, saving a round trip. The server then insists on
-  the TLS ALPN extension with the protocol name `postgresql`
+  negotiation it starts the handshake at once, saving a round trip. For a direct connection the
+  server insists on the TLS ALPN (application-layer protocol negotiation) extension with the
+  protocol name `postgresql`
   ([protocol docs](https://www.postgresql.org/docs/18/protocol-flow.html#PROTOCOL-FLOW-SSL)),
   and tokio-postgres-rustls 0.14 does not set it: add it to the `ClientConfig` yourself, or the
   server closes the connection. (postgres-native-tls and postgres-openssl have a
@@ -873,9 +878,9 @@ or Unix socket, set its options, try the next host on failure. That is the `runt
 on by default, which brings `connect`, `Config::connect`, the `Socket` type, and
 `CancelToken::cancel_query`. Underneath,
 [`Config::connect_raw`](https://docs.rs/tokio-postgres/0.7.18/tokio_postgres/config/struct.Config.html#method.connect_raw)
-runs the PostgreSQL startup over any stream you give it: anything `AsyncRead + AsyncWrite +
-Unpin`, a TCP stream you opened yourself, a stream through a proxy or tunnel, an in-memory
-pipe in a test. lagproxy's users (pgload, minipool) connect that way, and without the `runtime`
+runs the PostgreSQL startup over any `AsyncRead + AsyncWrite + Unpin` stream you give it: a
+TCP stream you opened yourself, a stream through a proxy or tunnel, an in-memory pipe in a
+test. pgload connects through lagproxy that way, and without the `runtime`
 feature it is the only way to connect at all.
 
 ```rust
@@ -925,10 +930,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 `connect_raw` uses the stream exactly as given, and that is the catch. `connect` sets
 `TCP_NODELAY` on every socket (`connect_socket.rs`), because PostgreSQL's small request and
-response messages suffer badly from Nagle's algorithm; with `connect_raw`, setting it is your
-job, and so are keepalives and the connect timeout. Of the connection settings in the `Config`,
+response messages suffer badly from Nagle's algorithm (which holds small writes back until
+earlier data is acknowledged); with `connect_raw`, setting it is your job, and so are
+keepalives and the connect timeout. Of the connection settings in the `Config`,
 `connect_raw` uses only those of the startup itself: user, password, database name, options and
-application name, plus the TLS mode and channel binding.
+application name, plus the TLS mode, TLS negotiation and channel binding.
 
 ### Side by side — *a query timeout*
 
@@ -1011,8 +1017,9 @@ pub fn pg_config(&self) -> Result<Config, tokio_postgres::Error> {
 
 `GET /reports/sales` can be slow, and its request may be abandoned: the router's timeout
 fires, or the client disconnects, and axum drops the handler's future. `CancelOnDrop` owns the
-pooled connection while the report runs. If it is dropped before `finish`, it cancels the
-query and then discards the connection instead of returning it, for the race of §12.3:
+pooled connection while the report runs. If it is dropped before its `finish` method is
+called, it cancels the query and then discards the connection instead of returning it, for
+the race of §12.3:
 
 ~~~rust
 // stockroom/src/db/cancel.rs (excerpt)
@@ -1061,7 +1068,7 @@ pub type MakeTls = tokio_postgres_rustls::MakeRustlsConnect;
 The rest of the code is written against `MakeTls` and compiles either way. One wrinkle:
 `NoTls` is `Copy`, while rustls's connector is only `Clone`, so code that must work with both
 calls `.clone()`, and clippy's `clone_on_copy` lint, which fires in the `NoTls` build, is
-allowed once for the crate. The same binary runs against the TLS server:
+allowed once for the crate. Built with the feature, stockroom runs against the TLS server:
 
 ```bash
 cargo run -p stockroom --features tls -- --db-ca-file docker/certs/ca.crt migrate
@@ -1230,7 +1237,7 @@ the middle answers "no" (`N`), and the client continues in plaintext, sending it
 authentication through the attacker; the connector never runs, so its careful verification
 never happens. Only `require` turns "no TLS" into an error. (SCRAM never sends the password
 itself, but a plaintext exchange can still be relayed to the real server, which is what
-channel binding prevents, and every query and result after it is readable.)
+channel binding prevents. And every query and result after it is readable.)
 
 ---
 

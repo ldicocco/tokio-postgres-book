@@ -12,8 +12,8 @@ fast, isolated and reliable.
 
 It covers what to test at which layer, two ways to isolate tests from each other (a database
 per test, and a transaction per test, with the second one's limits), testing the HTTP layer in
-memory, testing concurrency on purpose rather than by luck, and provoking each error code the
-error mapping handles. It ends with running PostgreSQL in CI.
+memory, testing concurrency on purpose rather than by luck, and running PostgreSQL in CI. It
+ends by provoking each error code the error mapping handles.
 
 ---
 
@@ -37,24 +37,25 @@ cannot reach them easily.
 Run them with:
 
 ```bash
-cargo test -p stockroom                    # 10 unit tests, 34 against PostgreSQL
+cargo test -p stockroom                    # 10 unit tests, 35 against PostgreSQL
 cargo test -p stockroom --test concurrency # just the concurrency tests
 ```
 
 ```text
-running 6 tests
-test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+running 3 tests
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
 ```
 
-(One of the eight test binaries, measured with PG 18.6 on localhost. Each finishes in under a
+(The concurrency binary, one of eight, measured with PG 18.6 on localhost. Each finishes in under a
 second, because tests within a binary run in parallel, each on a database of its own.)
 
 ## 17.2 A database per test, cloned from a template
 
 Tests that share a database see each other's rows, and then a test passes or fails depending on
 which ran first. The cleanest isolation is a fresh database per test, and PostgreSQL can make one
-in milliseconds: `CREATE DATABASE new TEMPLATE old` copies an existing database file by file,
-schema and data, without running a single migration. So the harness migrates one *template*
+in milliseconds: `CREATE DATABASE new TEMPLATE old` copies an existing database, schema and
+data (block by block through the WAL, the default strategy since PG 15), without running a
+single migration. So the harness migrates one *template*
 database once, then clones it for every test:
 
 ~~~rust
@@ -90,7 +91,8 @@ The details are where the time went when building it:
 
 - **The template's name includes a checksum of all migrations**
   (`stockroom_template_<checksum>`). Change a migration and the next test run builds a new
-  template, and drops the old ones; leave them alone and every run reuses it.
+  template and drops the old ones; leave the migrations alone and every run reuses the same
+  template.
 - **Only one process builds it.** Cargo runs test binaries one after another, but a developer
   may run two `cargo test`s at once; an advisory lock (Chapter 14) makes the second wait.
 - **The template must have no sessions when it is cloned**, or `CREATE DATABASE … TEMPLATE`
@@ -352,15 +354,15 @@ async fn fifty_customers_twenty_chairs() {
 
 [stockroom/tests/concurrency.rs](../stockroom/tests/concurrency.rs)
 
-Two practices make such tests trustworthy. **Repeat them**: a race that loses one run in fifty
-passes most runs, so while building stockroom the oversell test ran 50 times in a loop, and
-passed all 50. And **force the interleaving when you can**: instead of hoping two transactions
-overlap, drive two connections step by step, so that the conflict happens on every run. §17.7's
-example does that for a serialization failure and a deadlock.
+Two practices make such tests trustworthy. **Repeat them**: a race that shows up once in fifty
+runs passes almost every time, so while building stockroom the oversell test ran 50 times in a
+loop, and passed all 50. And **force the interleaving when you can**: instead of hoping two
+transactions overlap, drive two connections step by step, so that the conflict happens on every
+run. §17.7's example does that for a serialization failure and a deadlock.
 
-`tests/concurrency.rs` also checks that orders listing the same products in opposite orders
-never deadlock (they lock rows in a fixed order, Chapter 8), and that 40 concurrent transfers
-between two stores lose no stock.
+`tests/concurrency.rs` also checks that orders listing the same two products the other way round
+never deadlock (stockroom locks stock rows in a fixed order, Chapter 8), and that 40 concurrent
+transfers between two stores lose no stock.
 
 ## 17.6 PostgreSQL in CI: a service, or testcontainers
 
@@ -416,8 +418,9 @@ to get both isolation and speed.
 ## 17.7 Provoking every SQLSTATE the error mapping handles
 
 Chapter 15's `AppError` turns SQLSTATEs into HTTP statuses. Each arm of that `match` is code,
-and code that never runs in a test is code you hope works. Each error is easy to provoke on
-purpose, and deterministic if the test drives the interleaving itself:
+and code that never runs in a test is code you hope works. Every one of these errors is easy to
+provoke on purpose, and even the concurrent ones are deterministic if the test drives the
+interleaving itself:
 
 ```rust
 use std::time::Duration;
@@ -582,9 +585,10 @@ async fn main() -> Result<(), Error> {
 ```
 
 The deadlock takes about a second: PostgreSQL looks for deadlocks only after a lock wait reaches
-`deadlock_timeout` (1 s by default). stockroom's tests provoke the same codes through the API, and
-check the statuses: 409 for the duplicate SKU, 422 with the field for the check violations, 412
-for a stale `If-Match`, and 503 with `timeout` for the statement timeout (`tests/reports.rs`).
+`deadlock_timeout` (1 s by default). stockroom's own tests provoke errors through the API, and
+check the statuses a client sees: 409 for the duplicate SKU, 422 with the field for the check
+violations, 412 for a stale `If-Match`, and 503 with `timeout` for the statement timeout
+(`tests/reports.rs`).
 
 ---
 
@@ -595,7 +599,7 @@ for a stale `If-Match`, and 503 with `timeout` for the statement timeout (`tests
 | `src/**` (unit) | 10 | SKU parsing and its serde, cents arithmetic, order-status transitions, migration checksums and order, cursors, retry backoff |
 | `tests/types.rs` | 5 | domains, enums (and a new label), composites, arrays |
 | `tests/migrations.rs` | 5 | idempotence, edited and unknown migrations, rollback, two instances at once |
-| `tests/products.rs` | 7 | errors a client can cause, `If-Match`, pagination, savepoints, CSV in and out, NDJSON |
+| `tests/products.rs` | 8 | errors a client can cause, `If-Match`, pagination, savepoints, CSV in and out, NDJSON, a client that hangs up mid-stream |
 | `tests/orders.rs` | 5 | pricing and reservations, transitions, cancellation, 404 |
 | `tests/concurrency.rs` | 3 | overselling, deadlock-free ordering, transfers |
 | `tests/events.rs` | 6 | `NOTIFY` on commit only, reconnect and resync, SSE, outbox, health |
@@ -640,7 +644,7 @@ All of them run against a database cloned from the migrated template, and leave 
 
 ### Solutions
 
-**1.** Cloning copies files, so its time grows with the size of the template's data and is nearly
+**1.** Cloning copies the template's blocks, so its time grows with the size of its data and is nearly
 independent of how many migrations built it; running migrations grows with the number and cost
 of the migrations, and is independent of data (an empty database has none). For stockroom both
 are fast, and the template wins by skipping the DDL; the gap widens as migrations accumulate.
@@ -648,9 +652,9 @@ are fast, and the template wins by skipping the DDL; the gap widens as migration
 **2.** At `READ COMMITTED`, two transactions can both read `available = 1` and both decide to
 reserve, and the unguarded `UPDATE`s then raise `reserved` above `on_hand`. The constraint
 `stock_reserved_within_on_hand` (`reserved <= on_hand`) refuses the second one with 23514, so no
-chair is sold twice; but `AppError` maps that check violation to 422, and the test, which accepts
-only 201 and 409, fails whenever two orders interleave that way, which fifty tasks on sixteen
-connections make likely. The guarded `UPDATE` makes the check and the write one atomic statement,
+chair is sold twice. But `AppError` maps that check violation to 422, and the test, which accepts
+only 201 and 409, fails whenever two orders interleave that way; with fifty tasks on sixteen
+connections, that is likely. The guarded `UPDATE` makes the check and the write one atomic statement,
 re-evaluated after any lock wait (Chapter 8), so the race cannot happen; the constraint is the
 safety net that turns the bug into a wrong status instead of oversold stock.
 

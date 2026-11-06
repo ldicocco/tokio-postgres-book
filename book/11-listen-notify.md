@@ -10,7 +10,7 @@ build live dashboards, cache invalidation and job queues that wake up the moment
 with the database as the only moving part.
 
 The server also sends *notices*, the messages that `RAISE NOTICE` and many commands produce
-along the way. Both arrive unprompted, and both are thrown away unless you drive the
+along the way. Both arrive unprompted, and neither reaches your code unless you drive the
 `Connection` yourself. This chapter shows how, then builds the parts of a reliable listener:
 a dedicated connection, a trigger that announces changes, a catch-up query for whatever was
 missed, and fan-out to many subscribers.
@@ -98,9 +98,9 @@ statement takes literals only: `NOTIFY stock, $1` is a syntax error, so a payloa
 your program goes through the function `pg_notify(channel, payload)`, which takes ordinary
 parameters. Use `pg_notify` from code.
 
-The "at most once, only if committed" rule is what makes `NOTIFY` safe to put inside the
-transaction that changes the data: listeners never hear about a change that did not happen.
-The "nothing is stored" rule is what §11.6 is about.
+The "only if committed" rule is what makes `NOTIFY` safe to put inside the transaction that
+changes the data: listeners never hear about a change that did not happen. The "nothing is
+stored" rule is what §11.6 is about.
 
 ## 11.2 Driving the `Connection` yourself
 
@@ -166,7 +166,7 @@ pub async fn connect_with_messages()
 }
 ~~~
 
-`std::future::poll_fn` turns one call of a `poll_*` method into a future, which is all a loop
+`std::future::poll_fn` turns a `poll_*` method into a future of its next result: all a loop
 needs. The crate's own documentation uses the stream version, `futures_util::stream::poll_fn`,
 with `StreamExt::forward`; stockroom and pglisten use that one with `next()`. The three are
 equivalent.
@@ -176,11 +176,11 @@ the client's requests are written and their responses read by these `poll_messag
 That is why a full channel must not block it.
 
 > **Pitfall:** forwarding through a *bounded* channel with `send().await` gives backpressure,
-> and stockroom does it (capacity 1,024), but it couples two things. If the consumer falls
-> behind and the channel fills, the driver waits, and while it waits nobody polls the
-> connection: the client's own queries stall too, and the server's notification queue grows.
-> Keep the consumer of a listener connection fast, or use an unbounded channel and watch its
-> length, and keep the listening connection for listening (§11.5).
+> and stockroom does it (capacity 1,024), but it ties the connection to the consumer's pace. If
+> the consumer falls behind and the channel fills, the driver waits, and while it waits nobody
+> polls the connection: the client's own queries stall too, and the server's notification queue
+> grows. Keep the consumer of a listener connection fast (or use an unbounded channel and watch
+> its length), and use the listening connection for nothing else (§11.5).
 
 ## 11.3 `AsyncMessage`: notifications and notices
 
@@ -420,8 +420,8 @@ The order of the steps matters:
 
 A change committed between steps 1 and 2 is seen twice, once by each path, which
 deduplication handles. Run the steps the other way round, and a change committed between the
-query and the `LISTEN` is seen by neither. This example plays both kinds of change on one
-session, which makes the order deterministic:
+query and the `LISTEN` is seen by neither. This example inserts on the listening session
+itself, which makes the order deterministic:
 
 ```rust
 use std::collections::BTreeSet;
@@ -496,8 +496,8 @@ standard installation") until every listening session has read them, and "no cle
 place if a session executes `LISTEN` and then enters a transaction for a very long time"
 ([`NOTIFY`](https://www.postgresql.org/docs/18/sql-notify.html)). If the queue fills,
 transactions that `NOTIFY` fail at commit: one forgotten listener in a long transaction can
-break every writer. `SELECT
-pg_notification_queue_usage()` reports how full it is, as a fraction; watch it in production.
+break every writer. `SELECT pg_notification_queue_usage()` reports how full it is, as a
+fraction; watch it in production.
 
 ## 11.7 Fan-out with `broadcast`
 
@@ -550,8 +550,8 @@ async fn main() -> Result<(), tokio_postgres::Error> {
 }
 ```
 
-`recv().await` reports the same thing as `Err(RecvError::Lagged(n))`. Pick the capacity for
-the slowest subscriber you are willing to keep up to date without a resync, and make the resync
+`recv().await` reports a lag the same way, as `Err(RecvError::Lagged(n))`. Pick the capacity
+for the slowest subscriber you are willing to keep up to date without a resync, and make the resync
 cheap: a subscriber that lagged re-reads the current state, which is the same query as the
 catch-up of §11.6.
 

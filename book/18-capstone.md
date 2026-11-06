@@ -43,7 +43,7 @@ products, customers order for pickup at a store, and staff move orders from *pen
 | `src/notify/` | the `LISTEN` connection and the in-process hub | 11, 16 |
 | `src/worker/` | the outbox worker | 16 |
 | `src/cli/` | `seed` (binary `COPY`) and `export` (portal, binary `COPY` out) | 9, 10 |
-| `tests/` | 34 tests against PostgreSQL, a database each | 17 |
+| `tests/` | 35 tests against PostgreSQL, a database each | 17 |
 
 Three connection roles, three rules. **Pooled connections** serve requests and the worker,
 and never keep session state (Chapter 13). **One dedicated connection** listens, driven with
@@ -154,7 +154,7 @@ planned from.)
 | `cancel_token`, `CancelToken` | 12 | [`db/cancel.rs`](../stockroom/src/db/cancel.rs) |
 | timeouts, keepalives, `options` | 12 | `config.rs` |
 | `MakeTlsConnect`, tokio-postgres-rustls | 12 | [`db/tls.rs`](../stockroom/src/db/tls.rs) (`--features tls`) |
-| `connect_raw` | 12 | lagproxy users: pgload, minipool |
+| `connect_raw` | 12 | pgload, through lagproxy |
 | deadpool-postgres (`Pool`, `prepare_cached`, `Object::take`) | 13 | [`db/pool.rs`](../stockroom/src/db/pool.rs), `db/cancel.rs` |
 
 ## 18.4 Running it
@@ -186,8 +186,8 @@ INFO stockroom::notify::listener: listening for order events
 ```
 
 The session below was run with curl; `stockroom/stockroom.http` has the same requests, and more,
-for an editor's REST client. Readiness first: the pool has opened one connection of its 16, and
-the listener is connected:
+for an editor's REST client. Readiness first: the pool has opened one connection of its 16 (the
+probe itself is holding it, hence `"available":0`), and the listener is connected:
 
 ```bash
 curl -s localhost:8080/readyz
@@ -221,8 +221,8 @@ date: Fri, 06 Nov 2026 20:01:04 GMT
 ```
 
 (The id is a UUID version 7, from `uuidv7()` in the schema: its first digits are a timestamp, so
-ids sort by creation time.) Marking it paid, with the version from the `ETag`, and then trying
-again with the same, now stale, version:
+ids sort by creation time.) Marking it paid, with the version from the `ETag` (and `ID` set to
+that id), and then trying again with the same, now stale, version:
 
 ```bash
 curl -s -i -X POST localhost:8080/orders/$ID/transition -H 'content-type: application/json' \
@@ -239,7 +239,8 @@ HTTP/1.1 412 Precondition Failed
 {"currentVersion":2,"error":"stale_version","message":"the resource has changed: its current version is 2"}
 ```
 
-The stock shows the reservation, and the event stream received both changes:
+The stock shows the reservation (the store's stock list, filtered to `SKU00001` and printed by
+a one-line Python filter), and the event stream received both changes:
 
 ```text
 [{'sku': 'SKU00001', 'onHand': 50, 'reserved': 2, 'available': 48}]
@@ -263,7 +264,7 @@ INFO stockroom::worker::outbox: delivered topic="order.pending" payload={"orderI
 INFO stockroom::worker::outbox: delivered topic="order.paid" payload={"orderId":"01a1b273-50f5-71ea-8e39-c645892c55f3","previous":"pending","status":"paid","storeId":"01a1b273-085c-7487-b7e8-500106fafe63","version":2}
 ```
 
-And the pipelined dashboard (abridged):
+And the pipelined dashboard (pretty-printed, then abridged):
 
 ```text
 {"products": 1000, "stores": 3, "openOrders": 1, "ordersToday": 1, "revenueTodayCents": 158200,
@@ -278,7 +279,8 @@ INFO stockroom::app: shutting down
 INFO stockroom::app: shut down
 ```
 
-The process exited 1.5 ms after the signal (measured on this machine, localhost).
+The process exited 1.5 ms after the signal (measured against PostgreSQL 18.6 on
+localhost, on Apple Silicon).
 
 Over TLS, against the `docker compose` server of Chapter 12:
 
@@ -310,8 +312,9 @@ production deployment would need:
 - **Backups and migrations as a deployment step**, with `--migrate false` on the instances, and
   migrations written to be compatible with the previous release (Chapter 14).
 - **Delivery for real.** `LogDelivery` stands in for an email service; a real `Deliver`
-  implementation needs timeouts shorter than the pool's patience, idempotency keys (the job id),
-  and a dead-letter state after too many attempts.
+  implementation needs short timeouts, since the worker holds its claimed rows and a pooled
+  connection while it delivers (§16.6), idempotency keys (the job id), and a dead-letter state
+  after too many attempts.
 
 ## Summary
 
@@ -329,8 +332,8 @@ production deployment would need:
 
 ## Exercises
 
-These extend stockroom itself. Each needs a migration, repository code, a handler or a task, and
-tests in `tests/`.
+These extend stockroom itself. Each touches some of the layers (a migration, repository code, a
+handler or a task) and needs tests in `tests/`.
 
 1. **Pickup deadlines.** Orders that stay `ready` for more than three days should be cancelled and
    their stock released. Add a background task that does it every minute, safely with several
@@ -344,8 +347,8 @@ tests in `tests/`.
 3. **Idempotent orders.** Mobile clients retry `POST /orders` when the network drops, creating
    duplicate orders. Accept an `Idempotency-Key` header and return the original order for a
    repeated key.
-   *Hint:* a unique column for the key, `INSERT … ON CONFLICT DO NOTHING RETURNING`, and the
-   same transaction as the order.
+   *Hint:* a unique column for the key, a lookup before reserving anything, and the unique
+   violation as the sign that a concurrent request with the same key won.
 4. **A read replica for reports.** Add a second, optional pool for `/reports/*`, configured with
    `--replica-url`, falling back to the primary pool when it is not set. How does
    `/readyz` change?
@@ -359,7 +362,7 @@ LOCKED`, then run `repo::orders::transition(tx, id, Cancelled, None)` for each, 
 reservation and fires the status trigger. `SKIP LOCKED` lets several instances run the task at
 once without waiting for each other or cancelling an order twice, and a staff member's concurrent
 transition of the same order is serialized by the row lock. Test it by creating a `ready` order,
-moving its `updated_at` back with SQL (§17's fixtures through SQL), running one pass, and checking
+moving its `updated_at` back with SQL (Chapter 17, exercise 4), running one pass, and checking
 the stock levels and the event on the hub.
 
 **2.** An `AFTER UPDATE OF reserved, on_hand ON stock` trigger compares the old and new

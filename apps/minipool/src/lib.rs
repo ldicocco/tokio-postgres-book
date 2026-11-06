@@ -135,9 +135,8 @@ impl Pool {
 pub struct Conn {
     client: Option<Client>,
     pool: Arc<Inner>,
-    // Declared last, so it is dropped last: the client is back on the idle stack before the
-    // permit lets the next caller in. The other way round, that caller could find the stack
-    // empty and open a connection too many.
+    // Released after `Drop::drop` has put the client back on the idle stack, so the next
+    // caller the permit lets in finds it there instead of opening a connection too many.
     _permit: OwnedSemaphorePermit,
 }
 

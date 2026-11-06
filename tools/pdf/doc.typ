@@ -4,8 +4,8 @@
 // (and tools/pdf/filters.lua) and lays that body out with either `doc` (one chapter, one
 // PDF) or `book` (every chapter: cover, contents, chapters).
 //
-// Copied from the reference course's template, so the two
-// courses' PDFs look like one set. Keep changes small and note them here.
+// Copied from the template of the Rust course this book's style follows, so the two courses'
+// PDFs look like one set. Keep changes small and note them here.
 //
 // A4, serif body, sans headings, a running header (left: the book title; right: the
 // current chapter) and the page number in the footer.

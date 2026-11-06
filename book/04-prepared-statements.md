@@ -420,7 +420,7 @@ async fn main() -> Result<(), tokio_postgres::Error> {
 > And when you must change result types, clear the statement caches or recycle the pool's
 > connections after migrating.
 
-### Side by side — prepared statements
+### Side by side — *prepared statements*
 
 The task: prepare a query with one parameter once, and run it with two different values.
 

@@ -11,16 +11,16 @@ open for minutes, fed by the single `LISTEN` connection of Chapter 11. A slow re
 client abandoned must be cancelled on the server. And some work belongs to nobody's request at
 all: the outbox worker that delivers jobs in the background.
 
-Each section is one of stockroom's endpoints or tasks, reduced to a runnable example. The last
-sections cover what ties them together at the end: shutting down without cutting anything off,
-and telling an orchestrator whether the service is alive and ready.
+Most sections take one of stockroom's endpoints or tasks and reduce it to a runnable example. The
+last two cover what ties them together: shutting down without cutting anything off, and telling
+an orchestrator whether the service is alive and ready.
 
 ---
 
 ## 16.1 NDJSON from a `RowStream`: who owns the connection?
 
 Chapter 9 streamed rows with `query_raw`, and found that a `RowStream` does not borrow the
-client. In a handler that is both what makes streaming possible and a trap. The handler can
+client. In a handler, that is both what makes streaming possible and a trap. The handler can
 return a body built from the stream; the body outlives the handler; and the pooled `Object` the
 handler borrowed is dropped when the handler returns, going back to the pool *while the stream
 still runs on it*. The next request to borrow that connection queues its query behind the rest of
@@ -129,60 +129,61 @@ owned: the other request was answered
 ```
 
 In the leaky version, the pool's only idle connection was the one that had just "returned", so
-the second request got it, and its `SELECT 1` waited behind 200,000 unread rows. In the owned version, the stream kept its connection, so the second request got
-the other one. `let _checked_out = db;` is the whole fix: the underscore-prefixed name keeps the
-value alive to the end of the stream, where a bare `_` would drop it at once.
+the second request got it, and its `SELECT 1` waited behind 200,000 unread rows. In the owned
+version, the stream kept its connection, so the second request got a connection of its own.
+`let _checked_out = db;` is the whole fix: binding the `Object` to a name inside the stream moves
+it there and keeps it alive to the end of the stream. (A bare `let _ = db;` would not even move
+it into the stream: `_` binds nothing.) One case remains. When a client hangs up mid-stream,
+axum drops the body before the end; the connection goes back to the pool and still reads and
+discards the rest of the rows, and the next borrower waits behind them. stockroom therefore
+holds the connection through Chapter 12's `CancelOnDrop` guard instead, as the next section
+shows.
 
 Backpressure works end to end through this chain. A client that reads slowly stops the body;
-the body stops polling the stream; the stream's channel fills; the connection stops reading the
-socket; and the server waits in `ClientWrite` (Chapter 9). No layer buffers more than a little,
-so memory stays flat however large the result and however slow the client. The price is that a
-slow client holds a pooled connection for as long as it takes: set the pool size, and consider
-a cap on concurrent streams, with that in mind.
+the body stops polling the stream; the stream's response channel fills; the connection stops
+reading the socket; and the server waits in `ClientWrite` (Chapter 9). No layer buffers more than
+a little, so memory stays flat however large the result and however slow the client. The price is
+that a slow client holds a pooled connection for as long as it takes: size the pool with that in
+mind, and consider capping the number of concurrent streams.
 
 > **Pitfall:** once the first bytes of a streamed body are sent, the status (200) is final. An
 > error after that can only cut the body short, which the client sees as a truncated response:
 > an NDJSON client should treat a missing final newline, or a count that does not match, as a
-> failure. Decide before streaming whatever can still fail early, and stream only after.
+> failure. So do everything that can fail before the body starts, while an error can still choose
+> the status, and only then stream.
 
 ## 16.2 A CSV export with `copy_out`
 
 When the response is CSV, PostgreSQL can produce it: `COPY … TO STDOUT (FORMAT csv, HEADER)`
 formats every row, quoting included, and `copy_out` (Chapter 10) hands the chunks over as they
-come. The handler only moves bytes, and the same ownership rule applies:
+come. The handler only moves bytes, and the same ownership rule applies, here with the guard:
+the stream ends by calling `finish`, which hands the connection back, and a client that hangs
+up earlier gets its `COPY` cancelled and the connection discarded (§16.5 explains the guard):
 
 ~~~rust
 // stockroom/src/http/products.rs (excerpt)
-pub async fn export_csv(Db(db): Db) -> Result<Response, AppError> {
+pub async fn export_csv(State(state): State<AppState>, Db(db): Db) -> Result<Response, AppError> {
     let copy = db.copy_out(products::EXPORT_CSV).await?;
+    let guarded = CancelOnDrop::new(db, state.tls.clone());
     let body = Body::from_stream(async_stream::stream! {
-        let _checked_out = db;
         let mut copy = pin!(copy);
         while let Some(chunk) = copy.next().await {
             yield chunk;
         }
+        drop(guarded.finish()); // the whole file sent: back to the pool
     });
-    Ok((
-        [
-            (header::CONTENT_TYPE, "text/csv"),
-            (
-                header::CONTENT_DISPOSITION,
-                "attachment; filename=\"products.csv\"",
-            ),
-        ],
-        body,
-    )
-        .into_response())
+    // … the Content-Type and Content-Disposition headers, and the body
 }
 ~~~
 
 [stockroom/src/http/products.rs](../stockroom/src/http/products.rs)
 
-The next section's example exports with exactly this shape and reads the result back in.
+The next section's example includes an export handler of exactly this shape, and uses it to show
+what an import changed.
 
 ## 16.3 A CSV import: from the request body into `COPY`
 
-The other direction is the same idea reversed. axum's `Body` is a stream of `Bytes`
+An import is the same idea in reverse. axum's `Body` is a stream of `Bytes`
 (`body.into_data_stream()`), and a `CopyInSink` accepts `Bytes` (Chapter 10), so an upload can
 go from the socket into `COPY` chunk by chunk, never held whole in memory. Chapter 10's staging
 table makes it safe: the rows land in a temporary table, are checked and merged in one
@@ -343,12 +344,12 @@ Three details carry over to stockroom's `POST /products/import`:
   a `Content-Length` over the limit gets 413 before the handler runs; one without (a chunked
   upload) has its body cut off at the limit, and the handler sees a body error, which aborts the
   `COPY` and rolls back the transaction.
-- **Errors in the data are the client's**, class 22, reported with the line `DbError::where_()`
-  names. They quote the client's own CSV back, which is the one case where a `DbError`'s text may
-  reach a client (Chapter 6).
+- **Errors in the data are the client's** (class 22), reported with the line number that
+  `DbError::where_()` gives. They quote the client's own CSV back, which is the one case where a
+  `DbError`'s text may reach a client (Chapter 6).
 - **The handler holds a connection while the upload arrives**, since the `COPY` runs as the bytes
-  come in. A slow uploader holds a pooled connection; the body limit and a request timeout bound
-  how long.
+  come in. A slow uploader holds a pooled connection for as long as it takes; a request timeout
+  bounds how long, and the body limit how much.
 
 ## 16.4 Server-sent events from `LISTEN`
 
@@ -356,8 +357,8 @@ Three details carry over to stockroom's `POST /products/import`:
 [server-sent events](https://html.spec.whatwg.org/multipage/server-sent-events.html), a
 `text/event-stream` body of `event:` and `data:` lines that browsers read with `EventSource`.
 The events come from Chapter 11's design: one dedicated `LISTEN` connection for the whole
-process, feeding a `tokio::sync::broadcast` channel, from which each open SSE response
-subscribes. So a thousand open event streams cost one database connection, not a thousand.
+process, feeding a `tokio::sync::broadcast` channel that each open SSE response subscribes to.
+So a thousand open event streams cost one database connection, not a thousand.
 
 axum's `Sse` turns a `Stream` of `Event`s into such a response, and `KeepAlive` sends a comment
 line every 15 seconds by default, so that proxies do not close an idle stream:
@@ -465,24 +466,24 @@ data: {"orderId":42,"status":"paid"}
 ```
 
 Notice what the SSE handler does *not* hold: a database connection. It holds a broadcast
-receiver, so an idle event stream costs a few hundred bytes. If the handler needs the database
+receiver, so an idle event stream costs no database resources at all. If the handler needs the database
 first (stockroom looks up the store a client filters on), it borrows a connection for that
 lookup and lets it go before returning the stream.
 
 The `take_until` line matters more than it looks. axum's graceful shutdown (§16.7) waits for
 open responses to finish, and an event stream never finishes by itself: without it, a SIGTERM
-would leave the process waiting for every connected browser to leave. stockroom's test for this
-measured a shutdown in under 50 ms with an SSE client attached.
+would keep the process waiting until every connected browser had gone. Checked by hand while
+building stockroom, SIGTERM stopped the server in under 50 ms with an SSE client attached.
 
 ## 16.5 Timeouts and client disconnects
 
-A request can be abandoned two ways: the router's timeout fires, or the client disconnects. In
+A request can be abandoned in two ways: the router's timeout fires, or the client disconnects. In
 both cases axum *drops the handler's future*, and Chapter 12 showed what that leaves behind: a
 query still running on the server, and a pooled connection that goes back to the pool busy.
 
-`tower_http::timeout::TimeoutLayer` gives a slow handler a deadline and answers 503 when it
-passes. A guard that owns the pooled connection, and cancels its query when dropped before the
-handler finishes, makes the abandonment complete:
+`tower_http::timeout::TimeoutLayer` gives a slow handler a deadline and, when it passes, answers
+with the status you chose (503 here). A guard that owns the pooled connection, and cancels its
+query when dropped before the handler finishes, makes the abandonment complete:
 
 ```rust
 use axum::Router;
@@ -597,9 +598,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /guarded: 503 Service Unavailable, queries still running on the server: 0
 ```
 
-Both clients got their 503 after 200 ms. Only one of the servers stopped working. stockroom's
-`CancelOnDrop` (Chapter 12) is this guard with tracing and a configurable TLS connector, and
-`GET /reports/sales?delayMs=5000` uses it; a test in `tests/reports.rs`
+Both clients got their 503 after 200 ms, but only the guarded request stopped its query on the
+server. stockroom's `CancelOnDrop` (Chapter 12) is this guard with tracing and a configurable TLS
+connector, and `GET /reports/sales?delayMs=5000` uses it; a test in `tests/reports.rs`
 (`an_abandoned_report_is_cancelled_on_the_server`) checks that no `pg_sleep` is left running after
 a 300 ms router timeout.
 
@@ -752,10 +753,10 @@ jobs as "in progress until" a lease time, commits, delivers, and comes back to m
 
 ## 16.7 Graceful shutdown
 
-When an orchestrator stops the service (SIGTERM, Ctrl-C), in-flight requests should finish,
-background tasks should stop between units of work, and the pool should close its connections
-cleanly. One `tokio_util::sync::CancellationToken`, cloned into everything long-lived, carries
-the signal:
+When the service is told to stop (SIGTERM from an orchestrator, or Ctrl-C), in-flight requests
+should finish, background tasks should stop between units of work, and the pool should close its
+connections cleanly. One `tokio_util::sync::CancellationToken`, cloned into everything
+long-lived, carries the signal:
 
 ~~~rust
 // stockroom/src/app.rs (excerpt)
@@ -844,7 +845,7 @@ pool that often has waiters is too small, or its connections are held too long (
 - CSV out: `copy_out` straight into the body. CSV in: `body.into_data_stream()` into `copy_in`,
   through a staging table and a merge, in one transaction, under `RequestBodyLimitLayer`.
 - SSE: one `LISTEN` connection feeds a `broadcast`; each response subscribes, turns `Lagged`
-  into a resync event, keeps alive, and ends with the shutdown token.
+  into a resync event, sends keep-alives, and ends with the shutdown token.
 - An abandoned request leaves its query running unless a guard cancels it on drop and discards
   the connection; pair it with a server-side `statement_timeout`.
 - The outbox: jobs written in the changing transaction, claimed with `FOR UPDATE SKIP LOCKED`,
@@ -928,7 +929,7 @@ A client reads lines until the trailer and compares the count with the lines it 
 without a trailer was cut short.
 
 **2.** In each subscriber, as stockroom does. The single listener receives every event for every
-store, and the broadcast hands each one to every subscriber, which keeps the one it cares about.
+store, and the broadcast hands each one to every subscriber, which keeps those for its store.
 Filtering in SQL would need one channel per store, and so one `LISTEN` per store on the shared
 connection, managed as subscribers come and go; it pays off only when stores are many and events
 frequent.
@@ -944,7 +945,7 @@ longer than any delivery's timeout.
 
 **4.** The client still gets its answer: graceful shutdown stops accepting new connections but
 lets the in-flight request finish. If the report finishes within the request timeout (10 s by
-default in stockroom), the client gets 200 and the process exits right after, about 4 seconds
+default in stockroom), the client gets 200 and the process exits right after, at most 4 seconds
 after the signal. If the report would run longer, the router's timeout answers 503 first, and
 `CancelOnDrop` cancels the query, so the process still exits within the request timeout.
 

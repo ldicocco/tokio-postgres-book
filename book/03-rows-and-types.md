@@ -623,7 +623,7 @@ async fn main() -> Result<(), tokio_postgres::Error> {
 }
 ```
 
-### Side by side — a row into a struct
+### Side by side — *a row into a struct*
 
 The task: read a product into a struct, with a nullable column.
 

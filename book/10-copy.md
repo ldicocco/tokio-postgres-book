@@ -11,7 +11,7 @@ text, CSV or a binary format.
 
 tokio-postgres exposes `COPY` as a `Sink` going in and a `Stream` coming out, plus a pair of
 helpers for the binary format. This chapter covers all of them, what happens when a load fails
-halfway, and how to turn a bulk load into an upsert. It ends with measurements: on the same
+halfway, and how to turn a bulk load into an upsert. It also measures what `COPY` buys: on the same
 machine, binary `COPY` loaded rows about a hundred times faster than one `INSERT` at a time,
 and more than two hundred times faster across a 1 ms network delay.
 
@@ -24,7 +24,7 @@ takes a `COPY … FROM STDIN` statement and returns a
 [`CopyInSink<T>`](https://docs.rs/tokio-postgres/0.7.18/tokio_postgres/struct.CopyInSink.html),
 a `futures` `Sink` that accepts any `T: Buf`, usually `Bytes`. You send it chunks of data with
 `SinkExt::send`, then call `finish()`, which ends the COPY and returns the number of rows
-loaded. Like `RowStream`, the sink is `!Unpin`, so it is pinned first.
+loaded. Like `RowStream`, the sink is `!Unpin`, so you pin it first.
 
 The data is one byte stream in the format the statement names. The chunks you send do not have
 to end at row boundaries; the protocol says so
@@ -68,12 +68,12 @@ async fn main() -> Result<(), tokio_postgres::Error> {
 }
 ```
 
-Chunk size is yours to choose. In 0.7.18 the sink gathers chunks of 4 KiB or less until they
-pass 4 KiB, but `SinkExt::send` flushes after every item, and a flush sends whatever has been
-gathered (`copy_in.rs`). So `send` makes one protocol message per chunk, however small. If you
-produce many small pieces, one per row for instance, either `feed` them and call `finish` (or
-`flush`) at the end, or build larger chunks yourself, as pgload does with 64 KiB of CSV at a
-time. The binary writer of §10.3 batches its rows on its own.
+Chunk size is yours to choose. In 0.7.18 the sink gathers chunks of 4 KiB or less until their
+total passes 4 KiB, but `SinkExt::send` flushes after every item, and a flush sends whatever
+has been gathered (`copy_in.rs`). So `send` makes one protocol message per chunk, however
+small. If you produce many small pieces, one per row for instance, either `feed` them and call
+`finish` (or `flush`) at the end, or build larger chunks yourself, as pgload does with 64 KiB of
+CSV at a time. The binary writer of §10.3 batches its rows on its own.
 
 The text and CSV formats come with the usual escaping rules, which the next section shows
 on the way out. Use a CSV library (pgload and stockroom use the `csv` crate) rather than
@@ -179,7 +179,7 @@ with the same error; every request after that fails with "connection closed".
 > *Sync* and sends *ReadyForQuery*. Meanwhile `copy_in` returns the error and drops its side of
 > the copy, and the connection, as for any abandoned copy, sends *CopyFail* and another *Sync*.
 > The server, no longer in copy mode, has nothing to abort, and answers the second *Sync* with a
-> second *ReadyForQuery* that nobody asked for, and the connection task, which matches responses to
+> second *ReadyForQuery* that nobody asked for. The connection task, which matches responses to
 > requests strictly in order, gives up with "unexpected message from server". The design
 > problem is tracked as [rust-postgres issue #789](https://github.com/rust-postgres/rust-postgres/issues/789).
 
@@ -587,18 +587,19 @@ What the numbers say:
 
 - **Round trips dominate as soon as there is a network.** One `INSERT` at a time went from
   100× slower than binary `COPY` on localhost to 220× slower with 2 ms per round trip.
-  Production networks are rarely faster than that.
+  A millisecond or two per round trip is common between a service and its database.
 - **Pipelining recovers most of it, not all.** It removes the waiting, but the server still
-  runs 20,000 statements.
-- **Statements are the next cost.** `unnest` batches send the same data in 20 statements and
-  come within a factor of two of `COPY`; across the network the three are close, because each
-  is now a handful of round trips plus the bytes themselves.
+  runs one statement per row.
+- **Statements are the next cost.** `unnest` batches send the same data in one statement per
+  1,000 rows and come within a factor of two of `COPY`; across the network, `unnest` and both
+  `COPY` formats are close, because each is now a handful of round trips plus the bytes
+  themselves.
 - **Binary beats CSV** by not formatting and parsing text. The margin is clear on localhost and
   shrinks once the network dominates.
 
 So: for thousands of rows or more, use `COPY`. For tens to hundreds, or when you need
 `RETURNING` or `ON CONFLICT` in the same statement, `unnest` is nearly as good and much simpler.
-Never loop over single `INSERT`s, and if you must, pipeline them.
+Avoid looping over single `INSERT`s; if you must, pipeline them.
 
 ## 10.6 COPY into a temp table, then upsert
 
@@ -688,11 +689,12 @@ async fn main() -> Result<(), Error> {
 MERGE command cannot affect row a second time
 ```
 
-The duplicate cases are the ones that surprise. A key listed twice in the file is a *unique
-violation* when the key is new, because `MERGE` decides "not matched" for both rows before
-inserting either, and a *cardinality violation* when the key exists. `INSERT … ON CONFLICT DO
+The duplicate cases are the ones that surprise. A key listed twice in the file is a
+*cardinality violation* when the key exists, and a *unique violation* when it is new, because
+`MERGE` decides "not matched" for both rows before inserting either. `INSERT … ON CONFLICT DO
 UPDATE` fails with the cardinality error in both cases ("ON CONFLICT DO UPDATE command cannot
-affect row a second time"). Neither error names the key. So check the staging table for
+affect row a second time"). The cardinality error does not name the key (the unique
+violation's `DETAIL` does: "Key (sku)=(A-4) already exists."). So check the staging table for
 duplicates first and report them by name, as stockroom does below, or decide which line wins
 (Exercise 4).
 
@@ -812,7 +814,7 @@ where
 
 [stockroom/src/repo/products.rs](../stockroom/src/repo/products.rs)
 
-Each piece of this chapter is in it. The HTTP body is already a stream of `Bytes`, so the
+Most of this chapter is in it. The HTTP body is already a stream of `Bytes`, so the
 upload goes from socket to `COPY` without being held in memory, and chunk boundaries do not
 matter. The staging table exists before the `COPY` starts, so the `COPY` cannot fail at the
 start. `HEADER MATCH` (PG 15+) rejects a file whose header names other columns, with
@@ -874,9 +876,9 @@ transfer, for the reasons of Chapter 9.
 - Binary `COPY` (`BinaryCopyInWriter`, `BinaryCopyOutStream`) is the fastest format. Name the
   column types exactly, in order: the client checks values against your types, nothing checks
   your types against the table, and a same-sized wrong type loads wrong data without an error.
-- `COPY` is all or nothing, and its error names the line. `ON_ERROR ignore` (PG 17) skips
-  values that do not convert, `REJECT_LIMIT` (PG 18) caps it; neither works for structural
-  errors, constraints or binary.
+- `COPY` is all or nothing, and its error names the line. `ON_ERROR ignore` (PG 17+) skips
+  rows whose values do not convert, and `REJECT_LIMIT` (PG 18+) caps how many; neither works
+  for structural errors, constraints or binary.
 - For data from outside, load a staging table, validate with SQL, then `INSERT … SELECT` or
   `MERGE … RETURNING merge_action()`. Deduplicate first: duplicate keys fail the merge.
 - Measured: binary `COPY` was about 100× faster than single `INSERT`s on localhost and 220×

@@ -14,7 +14,7 @@ overwriting each other.
 This chapter builds those seams with [axum](https://docs.rs/axum/0.8.9/axum/) 0.8, one at a
 time, each as a small runnable service. None of the examples binds a port: they send requests
 to the router in memory, which is also how Chapter 17 tests stockroom. Chapter 16 adds the
-long-lived responses: streams, server-sent events and background work.
+long-lived parts: streamed responses, server-sent events and background work.
 
 ---
 
@@ -268,7 +268,8 @@ Two more rules make the mapping useful to a client. The *constraint name* (`DbEr
 Chapter 6) says which rule was broken, and so which request field to blame. And the server's
 own message never reaches the client: it can contain table names and the values of other rows
 (Chapter 6), so it goes to the log, and the client gets a stable code and a message
-written for it.
+written for it. The example maps the most common codes; stockroom's `AppError` (§ In stockroom)
+maps every row of the table.
 
 ```rust
 use axum::body::Body;
@@ -492,7 +493,8 @@ and the error mapping turns its verdicts into answers.
 
 A handler that writes several rows opens a transaction on its connection, and Chapter 8's rules
 apply unchanged: `?` anywhere drops the `Transaction`, which rolls it back, so an error halfway
-through leaves nothing behind. `Db(mut db)` because `transaction()` takes `&mut self`:
+through leaves nothing behind. The connection is bound with `mut` (`let mut db` here,
+`Db(mut db)` with the extractor) because `transaction()` takes `&mut self`:
 
 ```rust
 use axum::body::Body;
@@ -638,8 +640,8 @@ pub async fn place(
 > the closure owning `order`, compiles; each attempt then lends `&order` to `orders::place`
 > from inside the closure.
 
-`in_transaction` returns `AppError::Busy` when its retries run out, which `AppError` turns into
-503 with `Retry-After: 1`: the client is told to try again, not that it did something wrong.
+`in_transaction` returns `AppError::Busy` when its retries run out, and `Busy` becomes a 503
+with `Retry-After: 1`: the client is told to try again, not that it did something wrong.
 
 ## 15.5 Keyset pagination with an opaque cursor
 
@@ -930,7 +932,7 @@ Three layers check a request, and each catches what the others cannot:
    missing field, a string where a number belongs, a SKU that `Sku::parse` refuses (stockroom's
    `#[serde(try_from = "String")]`, Chapter 14).
 2. **The handler** checks rules that need several fields, or that the database cannot express
-   cheaply: "a batch has 1–100 products", "the period ends before it starts".
+   cheaply: "a batch has 1–100 products", "a period does not end before it starts".
 3. **The database** enforces the rest, as constraints (§15.3).
 
 axum's `Json` extractor rejects a bad body by itself, but with a plain-text body and its own
@@ -1049,10 +1051,11 @@ async fn main() {
 201 -
 ```
 
-axum's statuses are worth keeping: 400 for a body that is not JSON, 415 for the wrong content
-type, 422 for JSON of the wrong shape. stockroom maps all three to 422 with the same JSON
-format, through a one-line derive (`#[from_request(via(axum::Json), rejection(AppError))]`, with
-axum's `macros` feature), and `QueryRejection` the same way for query strings.
+axum's statuses are worth knowing: 400 for a body that is not JSON, 415 for the wrong content
+type, 422 for JSON of the wrong shape. The wrapper above keeps them. stockroom maps all three to
+422 with the same JSON format, through a one-line derive
+(`#[from_request(via(axum::Json), rejection(AppError))]`, with axum's `macros` feature), and
+`QueryRejection` the same way for query strings.
 
 ## 15.8 The pipelined dashboard
 
@@ -1073,7 +1076,7 @@ pub async fn dashboard(Db(db): Db) -> Result<Json<Dashboard>, AppError> {
 
 The comment points at a small trap. `query_one_scalar` exists only on `tokio_postgres::Client`
 (added in 0.7.16, Chapter 2), not on `Transaction` or either `GenericClient`, so
-`reports::dashboard` takes `&Client`, and the handler passes `&db`: an `&Object` that derefs, twice,
+`reports::dashboard` takes `&Client`, and the handler passes `&db`: a `&Object` that derefs, twice,
 to `&Client`. A function that must also run inside a transaction would use `query_one` and
 `get(0)` instead.
 
@@ -1203,13 +1206,15 @@ pub fn router(state: AppState, options: RouterOptions) -> Router {
 
 [stockroom/src/http/mod.rs](../stockroom/src/http/mod.rs)
 
-`TimeoutLayer::with_status_code` (tower-http 0.7) answers 503 when a handler takes longer than
-the request timeout, by dropping the handler's future, which Chapter 12 showed is not the same
-as stopping its query. The slow report guards against that with `CancelOnDrop`.
+When a handler takes longer than the request timeout, `TimeoutLayer::with_status_code`
+(tower-http 0.7) drops the handler's future and answers 503. Chapter 12 showed that dropping a
+future is not the same as stopping its query, which is why the slow report guards its query
+with `CancelOnDrop`.
 
 `AppError` (`src/error.rs`) is §15.3 in full: eleven variants, a stable `error` code for each, the
 fields a client needs (`currentVersion` for 412, the SKU and quantities for insufficient
-stock), `Retry-After` on `Busy`, and server errors logged with every `DbError` field but sent to
+stock), `Retry-After` on `Busy`, and server errors logged with the `DbError`'s code, message,
+detail, hint, table and constraint, but sent to
 the client as "something went wrong on our side". Its mapping from the database, by SQLSTATE
 and then by constraint name:
 
@@ -1257,8 +1262,8 @@ endpoint, ready to send from an editor.
 
 - The `Router`'s state holds the pool (and other cheap handles); layers add tracing, timeouts and
   body limits. Tests and examples drive the router in memory with `oneshot`.
-- A `Db` extractor (`FromRequestParts`) checks a connection out for the handler; it returns when
-  the handler's future ends. Put body extractors last.
+- A `Db` extractor (`FromRequestParts`) checks a connection out for the handler; the connection
+  returns to the pool when the handler's future ends. Put body extractors last.
 - Map database errors once, in `From<tokio_postgres::Error>`: 23505 → 409, 23514/23502/23503 →
   422 (with the field named by the constraint), 40001/40P01/55P03 → 503 with `Retry-After`,
   57014 → 503, the rest → 500 with details only in the log.
@@ -1288,16 +1293,18 @@ endpoint, ready to send from an editor.
 
 ### Solutions
 
-**1.** 503 with `Retry-After: 1`, as `AppError::Busy`, and `in_transaction` retries it like a
-serialization failure. That is reasonable for short waits behind another request's transaction;
-the retry usually succeeds once that transaction ends. If the wait was behind something long (a
-migration, a stuck session), the retries run out quickly and the client is told to come back,
-which is better than holding a pool connection for the whole duration.
+**1.** `AppError::Busy`, so 503 with `Retry-After: 1`, and `in_transaction` retries it like a
+serialization failure. That is right for short waits behind another request's transaction: the
+retry usually succeeds once that transaction ends. Behind something long (a migration, a stuck
+session) the arithmetic changes: eight attempts of up to two seconds each could take sixteen
+seconds, so the router's 10-second request timeout answers first, with a plain 503 and no
+`Retry-After`, after holding a pool connection the whole time. A service where that matters
+gives `lock_timeout`, the attempts and the request timeout budgets that fit together.
 
 **2.** Insert with `ON CONFLICT DO NOTHING`; a row back means created, no row means it existed,
 and the follow-up `SELECT` reads the existing one. There is still a tiny window (the existing
-product could be deleted between the two statements), which the second query handles by
-returning 404 or retrying:
+product could be deleted between the two statements), which the code below handles by
+still answering 409, without the name:
 
 ```rust
 use axum::body::Body;

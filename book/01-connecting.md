@@ -439,7 +439,7 @@ cause is the error's `source()`.** A few codes you will meet when connecting:
 > with `{}` hides the one thing you need. Log with `{:?}`, or reach for `as_db_error()`;
 > Chapter 6 builds an error type that does it for you.
 
-### Side by side — connecting
+### Side by side — *connecting*
 
 The task: connect to the book's database as an application called `demo`, and ask for the
 server's version.

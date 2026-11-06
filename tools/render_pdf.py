@@ -3,8 +3,8 @@
 Pipeline: Markdown --(pandoc + tools/pdf/filters.lua)--> Typst body
                    --(typst + tools/pdf/doc.typ)--> PDF.
 
-Ported from the reference course's renderer, so the two
-courses' PDFs come out of the same template. `tools/book.py` is the only caller:
+Ported from the renderer of the Rust course whose style this book follows, so the two courses'
+PDFs come out of the same template. `tools/book.py` is the only caller:
 
     python3 tools/book.py book                 the whole book: book/tokio-postgres-book.pdf (tracked)
     python3 tools/book.py pdf 3                one chapter, for local use: target/book/03-….pdf

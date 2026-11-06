@@ -126,8 +126,8 @@ From the documentation of `ToSql` and `FromSql` in postgres-types 0.2.14:
 | `Json<T>` (`T: Serialize`/`Deserialize`) | `JSON`, `JSONB` (needs `with-serde_json-1`) |
 
 There is no built-in mapping for `numeric` (use `rust_decimal`'s `db-tokio-postgres` feature,
-Chapter 3), `interval`, or `money`. Read them as text (`::text`) or with a crate that provides
-one, or implement `FromSql` yourself (Chapter 5).
+Chapter 3), `interval`, or `money`. Read them as text (`::text`), use a crate that provides the
+mapping, or implement `FromSql` yourself (Chapter 5).
 
 ### Behind features
 
@@ -202,7 +202,7 @@ all: `Error::code()` returns `None`, and `Error::is_closed()` tells the first ca
 ## D. Phrasebook: from sqlx and diesel
 
 How common tasks read in each library. The sqlx column matches the illustrations in the
-chapters; the diesel column shows diesel's query builder, with diesel-async for asynchronous
+chapters; the second table shows diesel's query builder, with diesel-async for asynchronous
 code (§F covers how diesel-async sits on tokio-postgres).
 
 | Task | sqlx | tokio-postgres | Chapter |
@@ -267,7 +267,7 @@ because a session runs one statement at a time (Chapter 7).
 versions, so readers do not block writers (Chapter 8).
 
 **Notice.** A non-error message from the server (`RAISE NOTICE`, "already exists, skipping"),
-delivered as `AsyncMessage::Notice` (Chapter 11).
+delivered as `AsyncMessage::Notice` (Chapters 6, 11).
 
 **Notification.** A message delivered to sessions that `LISTEN` on a channel, when a
 transaction that ran `NOTIFY` commits (Chapter 11).
@@ -278,7 +278,7 @@ afterwards by a worker, at least once (Chapter 16).
 **Pipelining.** Sending several requests on one connection before their answers arrive;
 tokio-postgres does it whenever several futures are in flight on one client (Chapter 7).
 
-**Pool.** A set of open connections lent out to tasks, one at a time each (Chapter 13).
+**Pool.** A set of open connections, each lent to one task at a time (Chapter 13).
 
 **Portal.** The server-side state of an executing query, from which rows can be fetched in
 batches; named portals live until the end of their transaction (Chapter 9).
@@ -307,7 +307,7 @@ dangerous patterns of reads and writes and fails one transaction with 40001 (Cha
 (`statement_timeout`), ending it with 57014 (Chapter 12).
 
 **Sync.** The extended-protocol message that ends a request and makes the server answer
-`ReadyForQuery`; every tokio-postgres request ends with one.
+`ReadyForQuery`; every extended-protocol request tokio-postgres sends ends with one.
 
 ## F. The crates built on tokio-postgres
 
@@ -368,7 +368,7 @@ with tokio-postgres.
 - **bb8-postgres**: `PostgresConnectionManager<Tls>::new(tokio_postgres::Config, tls)`, for the
   generic `bb8` pool; `pool.get()` returns a `PooledConnection` that derefs to
   `tokio_postgres::Client`. It spawns each `Connection` as a plain future, so the connection's
-  error is dropped, and notices only logged (Chapter 11). bb8 tests every connection on checkout
+  error is dropped and notices are only logged (Chapter 11). bb8 tests every connection on checkout
   by default (`test_on_check_out`, an empty query: one round trip, like deadpool's `Verified`)
   and closes idle and old connections in the background. It has no statement cache. Its last
   release is from December 2024.
@@ -402,8 +402,8 @@ All implement `MakeTlsConnect<Socket>` (Chapter 12).
 - **postgres-native-tls** (`MakeTlsConnector::new(native_tls::TlsConnector)`) uses the platform's
   TLS (Security.framework, SChannel or OpenSSL) and its trust store; **postgres-openssl**
   (`MakeTlsConnector::new(SslConnector)`, with `set_callback` for per-connection settings) uses
-  OpenSSL. Both have `set_postgresql_alpn()`, "required when using `sslnegotiation=direct`", since
-  0.5.1.
+  OpenSSL. Since 0.5.1, both have `set_postgresql_alpn()`, "required when using
+  `sslnegotiation=direct`".
 
 Several other rustls connectors exist (`postgres_rustls`, `rustls-tokio-postgres`,
 `tokio-postgres-generic-rustls`); they do the same job with different defaults.
@@ -445,7 +445,8 @@ Several other rustls connectors exist (`postgres_rustls`, `rustls-tokio-postgres
 
 ### Row mapping
 
-Three crates derive the `TryFrom<&Row>` that Chapter 3 writes by hand. Check their dates first:
+Three crates derive the row mapping that Chapter 3 writes by hand as `TryFrom<&Row>`. Check their
+dates first:
 
 - **postgres-from-row** 0.5.2 (May 2023): `#[derive(FromRow)]` gives `from_row(&Row)`, which
   panics on a mismatch, and `try_from_row(&Row) -> Result<Self, tokio_postgres::Error>`, with
@@ -464,7 +465,7 @@ For new code, a `TryFrom<&Row>` per type (Chapter 14) is a few lines and has no 
 
 - **rust_decimal** with `db-tokio-postgres` (identical to `db-postgres`): `Decimal` for `numeric`.
   `NaN` and the infinities, which `numeric` can hold, fail to convert, as do values
-  beyond its 96-bit mantissa (about 28 digits); digits beyond scale 28 are rounded away. For
+  beyond `Decimal`'s 96-bit mantissa (about 28 digits); digits beyond scale 28 are rounded away. For
   exact arbitrary-precision values, read `numeric` as text, or use a big-decimal crate.
 - **pgvector** with `postgres`: `Vector`, `HalfVector` (feature `halfvec`), `SparseVector` and
   `Bit` for the extension's types, matched by type *name* because extension OIDs differ between

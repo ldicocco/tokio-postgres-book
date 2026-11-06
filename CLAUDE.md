@@ -23,9 +23,10 @@ building and operating a Postgres-backed axum service.
 spec, the feature coverage matrix (§5.3), the phases and the decisions taken. Read it before
 starting any phase or chapter. When a decision changes, update PLAN.md in the same change.
 
-The style model is an existing Rust course in another repository ("the reference course").
-That is another repository: read it, do not modify it. When unsure how a section should look,
-open the matching chapter there. For example, `10-async.md` shows the section rhythm, and
+The style model is an existing Rust course in another repository ("the reference course"). Its
+location on this machine is in `CLAUDE.local.md`, which is gitignored; if that file is missing,
+ask for the path. Read the course, never modify it. When unsure how a section should look, open
+the matching chapter there. For example, `10-async.md` shows the section rhythm, and
 `14-capstone.md` shows a capstone.
 
 ## Status
@@ -53,7 +54,7 @@ Track it in `book/book.toml`: each chapter is `planned`, `draft` or `current`.
   `tokio-postgres-rustls`, `tokio-util` and `tower-http`. Findings: PLAN.md §12, rows 34–45.
   Notable: in 0.7.18 a `COPY … FROM STDIN` rejected as it starts kills the connection
   (rust-postgres issue #789, Chapter 10).
-- **Phase 4 (polish) is done** (2026-11-06): the book PDF rebuilt (290 pages), banners and
+- **Phase 4 (polish) is done** (2026-11-06): the book PDF rebuilt (293 pages), banners and
   exercise hints made uniform (17 Part I and II exercises lacked a *Hint*), cross-references
   checked, and the §5.3 coverage audit closed with one new example in §12.4. Appendix F
   (crates built on tokio-postgres) was researched from crates.io, docs.rs and the crates' source.
@@ -237,6 +238,9 @@ with `// …`.
   - transactions that can collide go through `db::in_transaction(&mut db, isolation, async move
     |tx| repo::f(tx, &input).await)`, with the closure owning `input`;
   - row locks are always taken in a fixed order (by id).
+  - a streamed response body (`RowStream`, `CopyOutStream`) owns its pooled connection through
+    `CancelOnDrop`, and calls `finish()` after the last chunk: a client that hangs up
+    mid-stream gets its query cancelled and the connection discarded, not returned busy.
 - `#![allow(clippy::clone_on_copy)]` in `stockroom/src/lib.rs` is deliberate: `MakeTls` is the
   `Copy` type `NoTls` without the `tls` feature, and the clones are needed with it.
 - `tracing` handles logging. Log the SQL statement name and its duration, never parameter values

@@ -536,7 +536,7 @@ is simply awaited, as the playground's `connect` does, tokio-postgres passes eac
 awaiting it (Chapter 11). stockroom's migration runner does exactly that, which is how
 "relation … already exists, skipping" ends up in its log.
 
-### Side by side — handling a unique violation
+### Side by side — *handling a unique violation*
 
 The task: insert a product whose SKU already exists, and recognize the error as a duplicate,
 with the constraint's name.

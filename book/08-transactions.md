@@ -13,15 +13,16 @@ tokio-postgres's part is small but strict. `Transaction` borrows the client muta
 compiler enforces what Chapter 7 showed the hard way: nothing else can run on a connection
 while a transaction owns it. The chapter covers transactions and that borrow, isolation
 levels, savepoints, writing functions that work inside or outside a transaction, retrying
-transactions that lose a race, locks, and optimistic concurrency. It ends by solving the
-chairs problem four ways, and proving each one with twenty concurrent customers.
+transactions that lose a race, locks, and optimistic concurrency. It ends with four attempts at
+the chairs problem, each tested with twenty concurrent customers: the naive one, which
+oversells, and three that do not.
 
 ---
 
 ## 8.1 `transaction`, `commit`, and rollback on drop
 
 `Client::transaction` sends `BEGIN` and returns a `Transaction`. It has the same query methods
-as a `Client`. `commit` ends it successfully. Anything else ends it with a rollback: an explicit
+as a `Client`, except the `query_*_scalar` family (Appendix A). `commit` ends it successfully. Anything else ends it with a rollback: an explicit
 `rollback`, or simply dropping it, which includes returning early with `?`:
 
 ```rust
@@ -77,7 +78,7 @@ async fn main() -> Result<(), Error> {
 Rollback on drop is a safety net, not a way to report errors. A `Drop` implementation cannot
 wait, so the dropped transaction only *queues* a `ROLLBACK` on the connection, and nobody
 hears whether it worked. Call `rollback().await` when you want to know, as stockroom's retry
-helper does (§8.6).
+helper does (at the end of this chapter).
 
 ## 8.2 Why `transaction` takes `&mut self`
 
@@ -112,7 +113,7 @@ concurrency simply open one connection per task.
 
 ## 8.3 Isolation levels, read-only and deferrable
 
-What a transaction sees of other transactions' changes is its *isolation level*.
+Which of other transactions' changes a transaction sees is decided by its *isolation level*.
 `build_transaction` chooses it, along with two more options, before sending `BEGIN`:
 
 ~~~rust
@@ -137,8 +138,8 @@ let tx = client
 > when that is not true. `READ UNCOMMITTED` exists in name only: PostgreSQL treats it as
 > READ COMMITTED.
 
-The difference is easy to see with two connections, one reading in a transaction while the
-other changes the row in between. The table must be a real one, visible to both sessions,
+The difference is easy to see with two connections: one reads a row twice in a transaction,
+and the other changes it between the two reads. The table must be a real one, visible to both sessions,
 so the example makes a schema of its own and drops it at the end:
 
 ```rust
@@ -246,10 +247,14 @@ async fn main() -> Result<(), tokio_postgres::Error> {
 }
 ```
 
-Savepoints are cheap, but not free: each one is a subtransaction on the server, and a very
-large number of them in one transaction (tens of thousands) has a measurable cost. One per
-item in a batch of a few hundred is fine, and it is exactly how stockroom's batch endpoint
-keeps the good items when some fail (Chapter 6).
+Savepoints are cheap, but not free: each one that writes is a subtransaction with an ID of its
+own, and PostgreSQL caches only 64 of them per session. Past that the cache overflows, and until
+the transaction ends, other sessions checking row visibility must look its subtransactions up in
+`pg_subtrans`, a known source of slowdowns on busy servers. (Measured on PG 18.6: 60 savepoints
+with an insert each left the cache at 60, 70 overflowed it.) Short transactions with a few dozen
+savepoints are harmless, and a savepoint per item is exactly how stockroom's batch endpoint
+keeps the good items when some fail (Chapter 6); its limit of 100 items per batch can overflow
+the cache, for the moment the transaction lasts.
 
 ## 8.5 `GenericClient`: code that runs inside or outside a transaction
 
@@ -302,9 +307,10 @@ async fn main() -> Result<(), Error> {
 Three things to know about it. It is *sealed*: only tokio-postgres can implement it, so you
 cannot add your own client type. Its async methods are written with the `async-trait` style
 and return boxed `Send` futures, which is why generic functions over it spawn without trouble.
-And it is not object-safe, so use it as a generic bound (`&impl GenericClient`), not as
-`&dyn GenericClient`. Pools have their own version: deadpool-postgres's `GenericClient` adds
-`prepare_cached`, and stockroom's repository functions use that one (Chapter 14).
+And it is not dyn-compatible (formerly called *object-safe*), so use it as a generic bound
+(`&impl GenericClient`), not as `&dyn GenericClient`. Pools have their own version:
+deadpool-postgres's `GenericClient` adds `prepare_cached`, and stockroom's repository
+functions use that one (Chapter 14).
 
 ## 8.6 Retrying transactions that lose a race
 
@@ -494,8 +500,8 @@ the outbox pattern (Chapter 16).
 `main`, and the `to_owned()` before it: the closure takes ownership of `name` as a `String` (an
 owned request struct, in a web handler), and each attempt's future borrows from the closure.
 Had the closure borrowed a local variable of the task instead, the program would not compile.
-Surprisingly, neither does capturing the original `name`, a `&'static str`: any reference in the
-captures trips the same check:
+Surprisingly, the same happens if it captures the original `name`, a `&'static str`: any
+reference in the captures trips the same check:
 
 ~~~rust
 let request = load_request();
@@ -520,8 +526,8 @@ tokio::spawn(async move {
 ## 8.7 Locks
 
 Isolation decides what a transaction *sees*. Locks decide who *waits*. An `UPDATE` or `DELETE`
-locks the rows it changes until the transaction ends, and a `SELECT` can take the same lock
-before it decides anything:
+locks the rows it changes until the transaction ends, and a `SELECT` can take the same lock,
+so that your code holds it before deciding anything:
 
 | Clause | Meaning |
 |---|---|
@@ -646,9 +652,9 @@ async fn main() -> Result<(), tokio_postgres::Error> {
 }
 ```
 
-Zero rows affected is the conflict signal, and the caller decides what to do: reload and show
-the user what changed. Over HTTP the version becomes an ETag and the check an `If-Match`
-header (Chapter 15).
+Zero rows updated (`None` from `query_opt` above) is the conflict signal, and the caller decides
+what to do, typically reload and show the user what changed. Over HTTP the version becomes an
+ETag and the check an `If-Match` header (Chapter 15).
 
 ## 8.9 Selling the last chair, four ways
 
@@ -819,7 +825,7 @@ A `CHECK (reserved <= on_hand)` constraint on the table is the safety net under 
 the code is ever wrong, the database refuses the bad row instead of storing it. stockroom has
 that constraint, and still uses the guarded update.
 
-### Side by side — a transaction
+### Side by side — *a transaction*
 
 The task: move 30 cents between two accounts, both changes or neither.
 
@@ -916,8 +922,9 @@ pub async fn in_transaction<T>(
 }
 ~~~
 
-`is_retryable` is true for 40001, 40P01 and 55P03, which Chapter 6's `From` impl turned into
-`AppError::Busy`. A handler hands it an `async move` closure that owns the request it extracted:
+`is_retryable` is true for 40001, 40P01 and 55P03, which Chapter 6's `From` impl turns into
+`AppError::Busy`. A handler passes `in_transaction` an `async move` closure that owns the
+request it extracted:
 
 ~~~rust
 // stockroom/src/http/orders.rs (excerpt)
@@ -935,8 +942,8 @@ pub async fn place(
 ~~~
 
 Placing an order uses the guarded update from §8.9, one per order line, at READ COMMITTED, so
-it rarely needs the retry. It only does when two orders deadlock, which the code prevents by
-locking stock rows in product-id order (Chapter 7 showed why that order is reliable).
+it rarely needs the retry. It would need it if two orders deadlocked, and the code prevents
+that by locking stock rows in product-id order (Chapter 7 showed why that order is reliable).
 Transfers between stores are different: they read a stock level, then change two rows, and the
 read must still be true at the end, so they run at SERIALIZABLE. Their first statement locks
 both rows, in a fixed order, because the first version of this code deadlocked:
@@ -955,10 +962,10 @@ tx.execute(
 .await?;
 ~~~
 
-The test suite proves all of it with concurrency: [tests/concurrency.rs](../stockroom/tests/concurrency.rs)
-places fifty orders for twenty chairs at once (exactly twenty succeed), runs forty orders for
-two products listed in either order (no deadlock surfaces), and forty transfers in both
-directions (no unit is lost).
+The test suite checks all of it under real concurrency.
+[tests/concurrency.rs](../stockroom/tests/concurrency.rs) places fifty orders for twenty chairs
+at once (exactly twenty succeed), runs forty orders for two products listed in either order (no
+deadlock surfaces), and forty transfers in both directions (no unit is lost).
 
 ## Summary
 

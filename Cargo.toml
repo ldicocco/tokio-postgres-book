@@ -16,6 +16,8 @@ members = ["playground", "stockroom", "apps/*"]
 [workspace.package]
 edition = "2024"
 publish = false
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ldicocco/tokio-postgres-book"
 
 [workspace.dependencies]
 # This workspace's own crates
