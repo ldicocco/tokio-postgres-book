@@ -714,7 +714,7 @@ topic, where it appears **in stockroom**, and its exercises.
 | jiff / uuid / serde_json / rust_decimal | 0.2.39 / 1.29.0 / 1.0.154 / 1.43.0 | |
 | thiserror / anyhow / tracing / tracing-subscriber | 2.0.21 / 1.0.104 / 0.1.44 / 0.3.23 | |
 | testcontainers-modules / refinery | 0.15.0 / 0.10.0 | |
-| **PostgreSQL (local)** | **18.6** (EDB installer, `localhost:5433`, `ssl = off`) | **The target.** Every example and all of stockroom are verified on it. |
+| **PostgreSQL (local)** | **18.6** (EDB installer, `localhost:5432`, `ssl = off`) | **The target.** Every example and all of stockroom are verified on it. |
 | PostgreSQL (docker, optional) | 18 with TLS on `:5434`, `hostssl` only | Only for the TLS examples (Chapter 12) |
 | pandoc / typst | installed | For the PDFs |
 
@@ -749,7 +749,7 @@ stockroom should change, change stockroom first, then rerun `excerpts`.
 
 | Decision | Choice | Alternatives |
 |---|---|---|
-| PostgreSQL version | **18** (local 18.6 on :5433), with version notes for features newer than 14 | a PG 14 baseline (rejected: end of life on 12 Nov 2026); verifying on both 14 and 18 |
+| PostgreSQL version | **18** (local 18.6 on :5432), with version notes for features newer than 14 | a PG 14 baseline (rejected: end of life on 12 Nov 2026); verifying on both 14 and 18 |
 | Side-by-side columns | psql + sqlx + tokio-postgres | psql + node-postgres; no comparison at all |
 | Project domain | stockroom (retail click-and-collect) | event ticket booking; a bank ledger |
 | Time crate | **jiff 0.2** (`Timestamp` ↔ `timestamptz` is exact). The type table shows chrono and time too. | chrono 0.4, the most common in existing code |

@@ -1,6 +1,6 @@
 //! `lagproxy`: put a slow network between a client and PostgreSQL.
 //!
-//!     cargo run -p lagproxy -- --upstream localhost:5433 --delay-ms 5
+//!     cargo run -p lagproxy -- --upstream localhost:5432 --delay-ms 5
 //!     DATABASE_URL=postgres://postgres:…@127.0.0.1:6543/tpbook cargo run --example …
 
 use std::time::Duration;
@@ -16,7 +16,7 @@ struct Args {
     #[arg(long, default_value = "127.0.0.1:6543")]
     listen: String,
     /// The server to forward to, as host:port.
-    #[arg(long, default_value = "localhost:5433")]
+    #[arg(long, default_value = "localhost:5432")]
     upstream: String,
     /// One-way delay in milliseconds.
     #[arg(long, default_value_t = 5)]

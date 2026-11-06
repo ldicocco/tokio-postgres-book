@@ -433,7 +433,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 ```text
-connected through /tmp/.s.PGSQL.5433
+connected through /tmp/.s.PGSQL.5432
 ```
 
 What to do about a dead connection depends on who owns it. A pool discards it and opens

@@ -97,19 +97,20 @@ cargo run -p stockroom --features tls -- --db-ca-file docker/certs/ca.crt migrat
 # The example apps (DATABASE_URL from .env)
 cargo run -p pgq -- -c "SELECT 1; SELECT now()"          # also --describe, --stream, --timing
 cargo run -p pglisten -- order_events outbox             # tail notifications
-cargo run -p lagproxy -- --delay-ms 5                    # :6543 → :5433, +5 ms each way
+cargo run -p lagproxy -- --delay-ms 5                    # :6543 → :5432, +5 ms each way
 cargo run -p pgload --release -- --rows 20000 [--delay-ms 1]    # Chapter 10's table
 cargo run -p minipool --release -- --tasks 64 --pool-size 8 [--delay-ms 2]   # Chapter 13's table
 ```
 
 ## Database
 
-- **The target server is PostgreSQL 18.6** (EDB installer, `localhost:5433`, `ssl = off`).
+- **The target server is PostgreSQL 18.6** (EDB installer, `localhost:5432`, `ssl = off`).
   Superuser `postgres`; its password is in `.env`. Every runnable example and all of stockroom
-  are verified on it.
-- `psql` is **not on the PATH**: the Homebrew PostgreSQL 14 that provided it was uninstalled on
-  2026-11-06. Use `/Library/PostgreSQL/18/bin/psql`. `book.py` finds it by itself, or you can
-  set `$PSQL`. Nothing listens on `:5432` any more.
+  are verified on it. It listened on `:5433` until 2026-11-06, while Homebrew's PostgreSQL 14
+  held `:5432`, so older notes may still say 5433.
+- `psql` is `/Library/PostgreSQL/18/bin/psql`; the Homebrew PostgreSQL 14 was uninstalled on
+  2026-11-06. The user's interactive shell has it on the PATH, but a non-interactive shell may
+  not: use the full path. `book.py` finds it by itself, or you can set `$PSQL`.
 - **Modern features are welcome**, for example `uuidv7()`, `RETURNING old/new`, virtual
   generated columns, `MERGE`, and COPY `ON_ERROR`. The first time the book uses a feature newer
   than PG 14, it names the version that introduced it ("`MERGE` (PG 15+)"). Verify such claims
@@ -130,7 +131,7 @@ cargo run -p minipool --release -- --tasks 64 --pool-size 8 [--delay-ms 2]   # C
   `docker/certs/ca.crt`, which `docker/gen-certs.sh` creates and which is gitignored. Only the
   examples marked `needs=tls` use it. `check` skips them, and says why, when
   `TLS_DATABASE_URL` is unset or nothing listens on it.
-- `localhost:5433` belongs to the EDB server, so the docker server cannot use that port.
+- `localhost:5432` belongs to the EDB server, so the docker server cannot use that port.
 
 ## Writing the book: the style contract
 

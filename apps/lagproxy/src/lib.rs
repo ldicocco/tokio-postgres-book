@@ -17,7 +17,7 @@
 //! ```no_run
 //! # async fn demo() -> std::io::Result<()> {
 //! use std::time::Duration;
-//! let proxy = lagproxy::Proxy::start("127.0.0.1:0", "localhost:5433", Duration::from_millis(5)).await?;
+//! let proxy = lagproxy::Proxy::start("127.0.0.1:0", "localhost:5432", Duration::from_millis(5)).await?;
 //! // Connect to `proxy.addr()` instead of the server: each round trip now takes 10 ms longer.
 //! # Ok(()) }
 //! ```
