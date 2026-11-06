@@ -4,14 +4,14 @@
 #
 # Fields
 #   id       Stable slug, the handle `book.py pdf <id>` and `check --chapter` accept
-#            (`check --chapter 8` also works: the number is the file name's prefix).
+#            (both also take the number: the file name's prefix, as in `pdf 8`).
 #   path     Relative to book/.
 #   title    Must equal the chapter's own `# ` heading once the file exists.
 #   summary  One line, no trailing period: what the README's contents table shows.
 #   status   planned | draft | current.
 #              planned  the file may not exist yet; nothing is checked
 #              draft    the file exists; its runnable blocks, links and excerpts are checked
-#              current  finished: also owes a PDF rendered from its text as it is now
+#              current  finished: also included in the book PDF (book/tokio-postgres-book.pdf)
 #
 # The outline each chapter is written from is in PLAN.md §7.
 
@@ -20,49 +20,49 @@ id = "introduction"
 path = "00-introduction.md"
 title = "Chapter 0 — Introduction and setup"
 summary = "Who the book is for, where tokio-postgres sits among Rust's Postgres libraries, the setup, and stockroom in one page"
-status = "draft"
+status = "current"
 
 [[chapter]]
 id = "connecting"
 path = "01-connecting.md"
 title = "Chapter 1 — Connecting"
 summary = "Client and Connection, spawning the connection task, connection strings and the Config builder, lifecycle and failures"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "queries"
 path = "02-queries.md"
 title = "Chapter 2 — Running SQL: execute, query and parameters"
 summary = "batch_execute, execute, query and its one/opt/scalar variants, parameters and injection, RETURNING, the simple query protocol"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "rows-and-types"
 path = "03-rows-and-types.md"
 title = "Chapter 3 — Rows and the type mapping"
 summary = "Reading rows, the Rust–Postgres type table, feature flags, borrowing from rows, NULL, JSON and arrays"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "prepared-statements"
 path = "04-prepared-statements.md"
 title = "Chapter 4 — Prepared statements and the extended protocol"
 summary = "What goes over the wire, Statement and ToStatement, type inference, query_typed, statement caching and round trips"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "custom-types"
 path = "05-custom-types.md"
 title = "Chapter 5 — Custom types: ToSql and FromSql"
 summary = "Implementing the conversion traits by hand, and deriving them for newtypes, enums, domains and composites"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "errors"
 path = "06-errors.md"
 title = "Chapter 6 — Errors"
 summary = "tokio_postgres::Error, DbError and SqlState, designing an application error, and aborted transactions"
-status = "planned"
+status = "current"
 
 [[chapter]]
 id = "pipelining"

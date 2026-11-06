@@ -4,9 +4,9 @@
 //! here and print each one where it is introduced. The regions marked `// region: <name>` are
 //! the exact text the chapters print — `tools/book.py check` compares the two.
 
+// region: connect
 use tokio_postgres::{Client, Error, NoTls};
 
-// region: connect
 /// Connects to the database named by the `DATABASE_URL` environment variable and spawns the
 /// connection task, returning the client.
 ///

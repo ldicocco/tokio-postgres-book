@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """The book's tool: keeps the chapters, their runnable examples and the code they quote in
-step, and renders the PDFs.
+step, and renders the book as a PDF.
 
-    python3 tools/book.py list                       chapters: status, examples, TODOs, PDF freshness
+    python3 tools/book.py list                       chapters: status, examples, TODOs; the book PDF
     python3 tools/book.py check                      everything: registry, versions, mirrors, links,
                                                      excerpts, then build + clippy + rustfmt and run
                                                      every runnable example against a fresh database
@@ -13,8 +13,9 @@ step, and renders the PDFs.
     python3 tools/book.py links                      relative links and #anchors resolve
     python3 tools/book.py excerpts                   ~~~ excerpts still match the files they quote
     python3 tools/book.py index                      regenerate README.md's contents table
-    python3 tools/book.py pdf ID… | --stale | --all  per-chapter PDFs
-    python3 tools/book.py book                       the whole book as one PDF
+    python3 tools/book.py fmt [--chapter N]          rustfmt every ```rust block, in place
+    python3 tools/book.py book                       the whole book as one PDF (the only one tracked)
+    python3 tools/book.py pdf N|ID… | --all          chapter PDFs for local use, in target/book/
 
 The conventions it enforces are in CLAUDE.md ("Writing the book"). In short:
 
@@ -64,6 +65,8 @@ README = os.path.join(REPO_ROOT, "README.md")
 PLAYGROUND = os.path.join(REPO_ROOT, "playground")
 EXAMPLES_DIR = os.path.join(PLAYGROUND, "examples")
 BOOK_PDF = os.path.join(BOOK_DIR, "tokio-postgres-book.pdf")
+# Chapter PDFs are local previews: rendered on demand, never committed.
+CHAPTER_PDF_DIR = os.path.join(REPO_ROOT, "target", "book")
 
 CHECK_DB = "tpbook_check"
 STATUSES = ("planned", "draft", "current")
@@ -181,12 +184,9 @@ class Chapter:
         return m.group(1) if m else None
 
     @property
-    def pdf_path(self):
-        return os.path.splitext(self.md_path)[0] + ".pdf"
-
-    @property
-    def stamp_path(self):
-        return self.pdf_path + ".source-sha256"
+    def local_pdf_path(self):
+        """Where `book.py pdf` renders this chapter: a gitignored preview."""
+        return os.path.join(CHAPTER_PDF_DIR, os.path.splitext(self.path)[0] + ".pdf")
 
     def text(self):
         return read(self.md_path)
@@ -194,16 +194,6 @@ class Chapter:
     def heading(self):
         m = re.search(r"^# (.+?)\s*$", self.text(), re.MULTILINE)
         return m.group(1) if m else None
-
-    def pdf_state(self):
-        """`fresh` / `stale` / `missing` (a current chapter without a PDF) / `none`."""
-        if not os.path.exists(self.pdf_path):
-            return "missing" if self.status == "current" else "none"
-        if not os.path.exists(self.stamp_path):
-            return "stale"
-        stamped = read(self.stamp_path).split()
-        current = hashlib.sha256(self.text().encode("utf-8")).hexdigest()
-        return "fresh" if stamped and stamped[0] == current else "stale"
 
 
 def load_registry():
@@ -841,7 +831,8 @@ def renderer():
 
 
 def book_chapters(chapters):
-    return [ch for ch in chapters if ch.active and ch.exists]
+    """What the book PDF contains: the finished (`current`) chapters, in order."""
+    return [ch for ch in chapters if ch.status == "current" and ch.exists]
 
 
 def book_stamp(chapters):
@@ -912,12 +903,13 @@ def cmd_list(args, chapters):
     for ex in examples:
         counts[ex.chapter.id] = counts.get(ex.chapter.id, 0) + 1
     width = max(len(ch.id) for ch in chapters)
-    print(f"{'chapter'.ljust(width)}  {'status':8} {'examples':>8} {'TODOs':>5}  pdf")
+    print(f"{'chapter'.ljust(width)}  {'status':8} {'examples':>8} {'TODOs':>5}")
     for ch in chapters:
         todos = ch.text().count(TODO) if ch.exists else 0
-        pdf = ch.pdf_state() if ch.exists else "none"
-        print(f"{ch.id.ljust(width)}  {ch.status:8} {counts.get(ch.id, 0):>8} {todos:>5}  {pdf}")
-    print(f"{'(the book)'.ljust(width)}  {'':8} {len(examples):>8} {'':>5}  {book_state(chapters)}")
+        print(f"{ch.id.ljust(width)}  {ch.status:8} {counts.get(ch.id, 0):>8} {todos:>5}")
+    included = len(book_chapters(chapters))
+    print(f"\n{len(examples)} runnable examples. {rel(BOOK_PDF)}: {book_state(chapters)} "
+          f"({included} current chapter(s); `python3 tools/book.py book` rebuilds it)")
     return 0
 
 
@@ -973,7 +965,41 @@ def cmd_check(args, chapters):
             summary = f"{len(selected)} example(s) compiled" + (" (not run)" if args.no_run else "")
     else:
         summary = "no runnable examples yet"
+    state = book_state(chapters)
+    if state in ("missing", "stale"):
+        print(f"! {rel(BOOK_PDF)} is {state}: the current chapters changed since it was built; "
+              "rebuild it with `python3 tools/book.py book`", file=sys.stderr)
     return report(failures, f"registry, versions, mirrors, links and excerpts clean; {summary}")
+
+
+def cmd_fmt(args, chapters):
+    """Format every runnable block with rustfmt, in place in the chapter."""
+    changed = 0
+    for ch in chapters:
+        if not (ch.active and ch.exists):
+            continue
+        if args.chapter and ch.number not in {c.zfill(2) for c in args.chapter} and ch.id not in args.chapter:
+            continue
+        lines = ch.text().split("\n")
+        # Bottom to top, so that earlier blocks keep their line numbers.
+        for block in reversed([b for b in parse_blocks(ch.text()) if b.runnable]):
+            source = "\n".join(block.body) + "\n"
+            res = subprocess.run(
+                ["rustfmt", "--edition", "2024", "--emit", "stdout"],
+                input=source, capture_output=True, text=True,
+            )
+            if res.returncode != 0:
+                sys.exit(f"book/{ch.path}:{block.line}: rustfmt failed:\n{res.stderr}")
+            formatted = res.stdout.rstrip("\n").split("\n")
+            if formatted != block.body:
+                lines[block.line : block.line + len(block.body)] = formatted
+                changed += 1
+        new_text = "\n".join(lines)
+        if new_text != ch.text():
+            with open(ch.md_path, "w", encoding="utf-8") as f:
+                f.write(new_text)
+    print(f"✓ reformatted {changed} block(s)")
+    return 0
 
 
 def cmd_index(args, chapters):
@@ -994,27 +1020,28 @@ def cmd_index(args, chapters):
 
 
 def cmd_pdf(args, chapters):
+    """Render chapters to PDF for local use (printing, reading offline), in target/book/.
+
+    Only the whole book is kept in the repository (`book`); these are never committed.
+    """
     render_pdf = renderer()
     if args.all:
         targets = [ch for ch in chapters if ch.active and ch.exists]
-    elif args.stale:
-        targets = [ch for ch in chapters if ch.status == "current" and ch.pdf_state() in ("missing", "stale")]
     else:
         by_key = {ch.id: ch for ch in chapters} | {ch.number: ch for ch in chapters}
         unknown = [i for i in args.ids if i not in by_key and i.zfill(2) not in by_key]
         if unknown or not args.ids:
-            sys.exit(f"name chapters by id or number, or pass --stale/--all (unknown: {unknown})")
+            sys.exit(f"name chapters by number or id (e.g. `pdf 3` or `pdf rows-and-types`), "
+                     f"or pass --all (unknown: {unknown})")
         targets = [by_key.get(i) or by_key[i.zfill(2)] for i in args.ids]
     for ch in targets:
         if not ch.exists:
             sys.exit(f"book/{ch.path} does not exist yet")
         try:
-            pdf, _ = render_pdf.render(ch.md_path)
+            pdf = render_pdf.render(ch.md_path, ch.local_pdf_path)
         except RuntimeError as error:
             sys.exit(str(error))
         print(f"Wrote {rel(pdf)}")
-    if not targets:
-        print("✓ nothing to render")
     return 0
 
 
@@ -1046,7 +1073,7 @@ def cmd_book(args, chapters):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("list", help="chapter status, examples, TODOs and PDF freshness")
+    sub.add_parser("list", help="chapter status, examples and TODOs; the book PDF's freshness")
     check = sub.add_parser("check", help="verify everything and run the examples")
     check.add_argument("--chapter", action="append", default=[], help="chapter number or id")
     check.add_argument("--no-run", action="store_true", help="compile and lint only")
@@ -1055,10 +1082,11 @@ def main(argv=None):
     sub.add_parser("links", help="check relative links and anchors")
     sub.add_parser("excerpts", help="check excerpts against the files they quote")
     sub.add_parser("index", help="regenerate README.md's contents table")
-    pdf = sub.add_parser("pdf", help="render chapter PDFs")
-    pdf.add_argument("ids", nargs="*")
-    pdf.add_argument("--stale", action="store_true")
-    pdf.add_argument("--all", action="store_true")
+    fmt = sub.add_parser("fmt", help="rustfmt every runnable block, in place")
+    fmt.add_argument("--chapter", action="append", default=[], help="chapter number or id")
+    pdf = sub.add_parser("pdf", help="render chapter PDFs for local use, into target/book/")
+    pdf.add_argument("ids", nargs="*", help="chapter numbers or ids")
+    pdf.add_argument("--all", action="store_true", help="every written chapter")
     sub.add_parser("book", help="render the whole book as one PDF")
     args = parser.parse_args(argv)
 
@@ -1067,6 +1095,7 @@ def main(argv=None):
     command = {
         "list": cmd_list, "check": cmd_check, "extract": cmd_extract, "links": cmd_links,
         "excerpts": cmd_excerpts, "index": cmd_index, "pdf": cmd_pdf, "book": cmd_book,
+        "fmt": cmd_fmt,
     }[args.command]
     return command(args, chapters)
 

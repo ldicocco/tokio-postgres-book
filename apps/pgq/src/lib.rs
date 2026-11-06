@@ -67,7 +67,7 @@ pub async fn run(client: &Client, sql: &str) -> Result<String, Error> {
     let mut table: Option<Table> = None;
     for message in client.simple_query(sql).await? {
         match message {
-            // Sent before the rows of each statement that returns rows (0.7.10 and later).
+            // Sent before the rows of each statement that returns rows (0.7.11 and later).
             SimpleQueryMessage::RowDescription(columns) => {
                 let headers = columns.iter().map(|c| c.name().to_owned()).collect();
                 table = Some(Table {

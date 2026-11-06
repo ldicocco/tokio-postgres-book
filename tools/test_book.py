@@ -94,7 +94,7 @@ class Excerpts(unittest.TestCase):
 class Mirrors(unittest.TestCase):
     def test_region_is_the_lines_between_markers(self):
         lines = book.mirror_lines("playground/src/lib.rs#connect")
-        self.assertTrue(lines[0].startswith("///"))
+        self.assertTrue(lines[0].startswith("use tokio_postgres"))
         self.assertFalse(any("region:" in line for line in lines))
 
     def test_missing_region_is_an_error(self):

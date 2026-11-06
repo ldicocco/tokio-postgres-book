@@ -1,4 +1,4 @@
-"""Render the book's Markdown to print-ready PDFs (plus provenance stamps).
+"""Render the book's Markdown to print-ready PDFs.
 
 Pipeline: Markdown --(pandoc + tools/pdf/filters.lua)--> Typst body
                    --(typst + tools/pdf/doc.typ)--> PDF.
@@ -6,12 +6,13 @@ Pipeline: Markdown --(pandoc + tools/pdf/filters.lua)--> Typst body
 Ported from the reference course's renderer, so the two
 courses' PDFs come out of the same template. `tools/book.py` is the only caller:
 
-    python3 tools/book.py pdf <chapter-id>     one chapter
-    python3 tools/book.py pdf --stale          every `current` chapter whose PDF is behind
-    python3 tools/book.py book                 the whole book as one PDF
+    python3 tools/book.py book                 the whole book: book/tokio-postgres-book.pdf (tracked)
+    python3 tools/book.py pdf 3                one chapter, for local use: target/book/03-….pdf
 
-Beside each PDF it writes `<out>.source-sha256`, standard `shasum -a 256` output for the
-Markdown it rendered, so `book.py list` can tell a fresh PDF from a stale one.
+Only the book PDF is kept in the repository. Beside it, `book.py` writes a provenance stamp
+(standard `shasum -a 256` output for every chapter it was rendered from), so `list` and
+`check` can tell when it has fallen behind. Chapter PDFs are previews, rendered on demand
+into the (gitignored) `target/` directory, without a stamp.
 
 Prerequisites (one-time):  brew install pandoc typst   (pandoc 3.x, typst 0.13 or newer)
 
@@ -19,7 +20,6 @@ No network is used. The fonts are macOS system fonts (Charter, Avenir Next, Menl
 elsewhere Typst falls back to the fonts it embeds and says so.
 """
 
-import hashlib
 import os
 import re
 import shutil
@@ -93,20 +93,11 @@ def title_of(text, fallback):
     return m.group(1) if m else fallback
 
 
-def stamp_for(text, src):
-    """The provenance stamp line for `text`, in `shasum -a 256` format, repo-relative so
-    `shasum -c book/<chapter>.pdf.source-sha256` works from the repository root."""
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    return f"{digest}  {os.path.relpath(src, REPO_ROOT)}\n"
-
-
-def render(src, out=None):
-    """Render one chapter to a PDF and write `<out>.source-sha256` beside it.
-
-    Returns `(pdf_path, stamp_path)`; raises `RuntimeError` if no PDF was produced.
-    """
+def render(src, out):
+    """Render one chapter to the PDF `out`. Raises `RuntimeError` if no PDF was produced."""
     src = os.path.abspath(src)
-    out = os.path.abspath(out or os.path.splitext(src)[0] + ".pdf")
+    out = os.path.abspath(out)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(src, encoding="utf-8") as f:
         text = f.read()
     title = title_of(text, os.path.splitext(os.path.basename(src))[0])
@@ -116,10 +107,7 @@ def render(src, out=None):
         + to_typst(text),
         out,
     )
-    stamp_path = out + ".source-sha256"
-    with open(stamp_path, "w", encoding="utf-8") as f:
-        f.write(stamp_for(text, src))
-    return out, stamp_path
+    return out
 
 
 def render_book(chapters, out, title, kicker, subtitle, left_note, right_note):

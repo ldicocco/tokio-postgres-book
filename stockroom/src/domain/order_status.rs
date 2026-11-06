@@ -6,11 +6,16 @@ use postgres_types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
 
 /// Mirrors `CREATE TYPE order_status AS ENUM ('pending', 'paid', 'ready', 'collected',
-/// 'cancelled')`. The derive checks the labels when the type is first used, so a variant
-/// missing on either side is an error, not a silent mismatch.
+/// 'cancelled')`.
+///
+/// `allow_mismatch` matters in production. Without it, the derive accepts the database type
+/// only if its labels are *exactly* these five: a migration that adds a sixth status would
+/// make every new connection refuse every `order_status` value, `'paid'` included, until
+/// this enum gets the variant too. With it, only an unknown label fails, and only when a row
+/// actually holds it, so the database can be migrated ahead of the code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSql, FromSql)]
 #[serde(rename_all = "lowercase")]
-#[postgres(name = "order_status", rename_all = "lowercase")]
+#[postgres(name = "order_status", rename_all = "lowercase", allow_mismatch)]
 pub enum OrderStatus {
     Pending,
     Paid,

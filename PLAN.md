@@ -5,9 +5,10 @@ The course goes from the first query to a production-shaped HTTP service built w
 Its form and voice follow the Rust course in
 another repository ("the reference course").
 
-Status: **Phases 0 (scaffold), 1 (stockroom) and 2 (apps) done on 2026-11-06. Next is Phase 3a
-(Part I: Chapters 0–6).** Phases and acceptance criteria are in §9; what building the software
-taught is in §12.
+Status: **Phases 0–2 and 3a done on 2026-11-06: the scaffold, stockroom, the apps, and Part I
+(Chapters 0–6, `current`, 59 runnable examples, the book PDF rendered). Next is Phase 3b (Part II:
+Chapters 7–12).** Phases and acceptance criteria are in §9; what building the software and
+writing the chapters taught is in §12.
 
 ---
 
@@ -56,8 +57,10 @@ the style contract.
     alone. An excerpt's first line is a comment naming the file it comes from.
 - The reference course has a **TS/C++ → Rust phrasebook** appendix. This book has an appendix
   of cheat sheets instead (§7, Appendix).
-- **Per-chapter PDFs plus one book PDF**, rendered with the same pandoc → Typst pipeline,
-  copied from the reference course.
+- **One book PDF**, rendered with the same pandoc → Typst pipeline, copied from
+  the reference course. Unlike the reference course, chapters get no PDFs of their own in
+  the repository; any chapter can be rendered locally on demand (`book.py pdf N`, into
+  `target/book/`).
 
 ---
 
@@ -100,7 +103,7 @@ tokio-postgres-book/
 ├── book/
 │   ├── book.toml            chapter registry: id, path, title, summary, status (drives tooling)
 │   ├── 00-introduction.md … 18-capstone.md, 19-appendix.md
-│   └── *.pdf, *.pdf.source-sha256, tokio-postgres-book.pdf
+│   └── tokio-postgres-book.pdf (+ .source-sha256): the only PDF tracked
 ├── playground/              the reader's scratch crate, mirrored
 │   ├── src/lib.rs           `connect()` and `slice_iter()` helpers (printed verbatim in Ch 1 and Ch 9)
 │   └── examples/            GENERATED from ```rust blocks — never edited by hand
@@ -245,7 +248,7 @@ They read `DATABASE_URL` from the environment or from `.env`.
 
 | App | Chapter(s) | What it shows | Tests |
 |---|---|---|---|
-| **lagproxy** | 4, 7, 10, 12, 13 | A TCP proxy that delays every chunk by N ms each way. It adds latency without limiting bandwidth: chunks are timestamped and forwarded in order. It works as a library (`Proxy::start`, used in-process by pgload and minipool) and as a binary (used by `book.py check` for `needs=lagproxy`). The delay is a lower bound: on this Mac a round trip costs about `2 × delay + 3 ms`, because of timer granularity. | 2 (an echo server, no database) |
+| **lagproxy** | 4, 7, 10, 12, 13 | A TCP proxy that delays every chunk by N ms each way. It adds latency without limiting bandwidth: chunks are timestamped and forwarded in order. It works as a library (`Proxy::start`, used in-process by pgload and minipool) and as a binary (used by `book.py check` for `needs=lagproxy`). The delay is a lower bound: on this Mac a round trip costs `2 × delay` plus 3 to 6 ms, because of timer granularity (measured: 15.3 ms at 5 ms, 26 ms at 10 ms). | 2 (an echo server, no database) |
 | **pgq** | 2, 4, 9 | A mini psql. It uses `simple_query` with `RowDescription` and `CommandComplete`, renders tables like psql, prints notices through `poll_message`, and shows errors with their SQLSTATE. `--describe` uses `prepare` to show parameter and column types and source columns. `--stream` uses `simple_query_raw`. It also has `--timing` and an interactive mode. | 4 |
 | **pgload** | 10 | The same generated rows (with commas and quotes in them) loaded five ways: one `INSERT` at a time, pipelined `INSERT`, `unnest` batches, CSV `COPY`, and binary `COPY`. It prints a Markdown timing table, and with `--delay-ms` it connects through an in-process lagproxy using `connect_raw`. The test checks that all five store identical rows (an md5 fingerprint). | 1 |
 | **pglisten** | 11, 12 | A `LISTEN` tail built on a `run(config, options, on_event, shutdown)` library. It drives the connection with `poll_message`, quotes channel names with `quote_ident`, and reconnects with backoff. A catch-up query runs after each `LISTEN`, and an optional `check_connection` ping runs on an interval. | 4 (one unit test, three against PostgreSQL) |
@@ -327,12 +330,13 @@ that guarantee against a real database.
 
 | Command | What it does |
 |---|---|
-| `list` | Every chapter with its status (`planned`/`draft`/`current`), TODO count and PDF freshness |
+| `list` | Every chapter with its status (`planned`/`draft`/`current`), example and TODO counts, and whether the book PDF is fresh |
 | `extract` | Writes each runnable block to `playground/examples/chNN_KK.rs`, with a header naming the source file and line and marking the file as generated |
 | `check [--chapter N] [--no-run]` | Runs `extract`, recreates the database `tpbook_check`, runs `cargo build`, `clippy -Dwarnings` and `fmt --check` on the examples, then runs each example with a timeout and `DATABASE_URL` pointing at that database. Prints a pass/fail table. |
 | `links` | Checks that every relative link resolves |
 | `excerpts` | Checks every ` ~~~rust ` excerpt whose first line names a file: the file must exist, and every line that is not an ellipsis must appear in the file. This catches drift between the book and stockroom. |
-| `pdf [id\|--stale\|--all]`, `book` | Renders per-chapter PDFs and the full book PDF with a provenance stamp, using the reference course's pandoc → Typst pipeline |
+| `book` | Renders the whole book (the `current` chapters) to `book/tokio-postgres-book.pdf` with a provenance stamp, using the reference course's pandoc → Typst pipeline; `check` warns when it is stale |
+| `pdf N\|ID… \| --all` | Renders chapters for local use into `target/book/` (gitignored, never committed) |
 
 **Directives for code blocks.** Pandoc cannot parse info strings like ` ```rust,ignore `, so a
 runnable block that needs special treatment is preceded by an HTML comment, which the PDF drops:
@@ -719,7 +723,7 @@ status.
 | **3a. Part I** | Chapters 0–6 | `book.py check`, `excerpts` and `links` pass, and chapter status is `current` |
 | **3b. Part II** | Chapters 7–12 | The same gates; TLS examples pass against docker compose |
 | **3c. Part III** | Chapters 13–18 and the appendix | The same gates; the feature map in Chapter 18 links resolve |
-| **4. Polish** | Per-chapter PDFs and the book PDF; a full read-through for voice, cross-references and solutions; a coverage audit against §5.3 | `book.py list` shows every chapter `current` with a fresh PDF |
+| **4. Polish** | The book PDF; a full read-through for voice, cross-references and solutions; a coverage audit against §5.3 | `book.py list` shows every chapter `current` and the book PDF fresh |
 
 stockroom is built **before** the chapters, so that every "In stockroom" excerpt can point at
 real code and the `excerpts` check has a stable target. If writing a chapter later shows that
@@ -799,4 +803,11 @@ named, as a runnable example where it can be one.
 | 24 | **Field order in a pool guard matters:** the client must go back to the idle stack *before* the semaphore permit is released, or a waiter can open a connection beyond `max_size`. | 13 |
 | 25 | **A `NOTIFY` in a rolled-back transaction is never delivered**, and a committed one is delivered at commit. Quoted channel names are case-sensitive and match `pg_notify('Name', …)` exactly; unquoted `LISTEN Name` folds to lower case. | 11 |
 | 26 | **`SimpleQueryMessage::CommandComplete` carries only a row count**, not the command tag: DDL reports 0, and there is no "CREATE TABLE" to print as psql does. | 2 |
+| 27 | **Writing Part I corrected several "known" facts**, each now pinned by a runnable example or a captured output: `SimpleQueryMessage::RowDescription` arrived in 0.7.11, not 0.7.10; `now() - $1` infers `timestamptz`, not `interval`; `WHERE x IN ($1)` with an array prepares fine (`$1` is `text`) and fails on the client; a wrong-type panic message does not include the cause; psql 18 prints `\conninfo` as a table. | all |
+| 28 | **A strict derived enum refuses every value once the database type gains a label**, on any connection that loads the type afresh. stockroom's `OrderStatus` now uses `allow_mismatch`, with a regression test (`tests/types.rs`). | 5 |
+| 29 | **Types and domains can be created in `pg_temp`** and work with the derives (which match on the name, not the schema), so custom-type examples leave nothing behind. | 5 |
+| 30 | **When a `Connection` is merely awaited, notices go to the `log` crate** at `info`; nothing shows them unless a logger is installed. | 6, 11 |
+| 31 | **`DbError`'s `Display` is multi-line** (`ERROR: … DETAIL: … HINT: …`), and the `detail` of a unique violation contains the duplicate value: decide where it may go. | 6 |
+| 32 | **`Statement::name()` is crate-private**; prepared statements are visible from SQL in `pg_prepared_statements` as `s0`, `s1` and so on (a global counter). | 4 |
+| 33 | **lagproxy's measured round trips**: 15.3 ms at a 5 ms delay, 26 ms at 10 ms; text queries cost exactly twice a prepared or `query_typed` one. | 4 |
 

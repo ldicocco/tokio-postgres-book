@@ -11,7 +11,7 @@
 //!
 //! The delay is a lower bound. Tokio's timer rounds a sleep up to the next millisecond, and
 //! the operating system adds slack of its own: on the Mac the book was written on, a 1 ms
-//! sleep took 2.3 ms, so a round trip through the proxy cost about `2 × delay + 3 ms`. That
+//! sleep took 2.3 ms, and a round trip through the proxy cost `2 × delay` plus 3 to 6 ms. That
 //! is why the book's examples compare timings with each other, never with a fixed number.
 //!
 //! ```no_run

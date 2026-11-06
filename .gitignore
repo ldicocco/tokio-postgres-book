@@ -8,3 +8,8 @@
 
 # Python bytecode from tools/
 __pycache__/
+
+# Chapter PDFs are local previews (`python3 tools/book.py pdf N` writes them to target/book/);
+# only the whole book, book/tokio-postgres-book.pdf, is tracked.
+/book/[0-9][0-9]-*.pdf
+/book/[0-9][0-9]-*.pdf.source-sha256

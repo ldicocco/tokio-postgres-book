@@ -8,7 +8,7 @@ A course book, **Async PostgreSQL in Rust**, about
 [`tokio-postgres`](https://docs.rs/tokio-postgres/latest/tokio_postgres/). It comes with the
 software the book teaches from:
 
-- `book/`: one Markdown chapter per file, plus per-chapter PDFs and one book PDF.
+- `book/`: one Markdown chapter per file, and the whole book as one PDF.
 - `stockroom/`: the capstone, an axum HTTP service that uses almost every tokio-postgres feature.
 - `apps/`: small example programs, each behind one or two chapters (pgq, lagproxy, pgload,
   pglisten, minipool).
@@ -43,7 +43,10 @@ Track it in `book/book.toml`: each chapter is `planned`, `draft` or `current`.
 - **Phase 2 (apps) is done** (2026-11-06): lagproxy, pgq, pgload, pglisten and minipool, each a
   library plus a binary with tests. PLAN.md §5.2 describes them as built, with measured
   benchmark tables. `book.py check` now runs `needs=lagproxy` examples through lagproxy.
-- **Next is Phase 3a: Part I, Chapters 0–6** (PLAN.md §7, §9). Write one chapter at a time,
+- **Phase 3a (Part I, Chapters 0–6) is done** (2026-11-06): all `current`, 59 runnable
+  examples, the book PDF rendered. Writing them corrected several facts; see PLAN.md
+  §12, rows 27–33.
+- **Next is Phase 3b: Part II, Chapters 7–12** (PLAN.md §7, §9). Write one chapter at a time,
   using the findings in PLAN.md §12.
 
 ## Commands
@@ -65,10 +68,12 @@ python3 tools/book.py check --no-run                     # compile and lint only
 python3 tools/book.py check --keep-db                    # leave tpbook_check behind to inspect
 python3 tools/book.py links                              # just links and #anchors
 python3 tools/book.py excerpts                           # just ~~~ excerpts vs their source files
+python3 tools/book.py fmt --chapter 8                    # rustfmt the chapter's ```rust blocks, in place
 python3 tools/book.py extract                            # regenerate playground/examples/
-python3 tools/book.py list                               # chapter status, examples, TODOs, PDF freshness
+python3 tools/book.py list                               # chapter status, examples, TODOs; the book PDF's freshness
 python3 tools/book.py index                              # regenerate README.md's contents table
-python3 tools/book.py pdf --stale && python3 tools/book.py book   # PDFs (pandoc + typst)
+python3 tools/book.py book                               # the book PDF: the only PDF in the repository
+python3 tools/book.py pdf 3                              # one chapter, locally, into target/book/ (never committed)
 docker/gen-certs.sh && docker compose up -d --wait       # optional TLS server (Chapter 12)
 
 # stockroom (reads .env: STOCKROOM_DATABASE_URL; every flag also has an env var, see --help)
@@ -195,6 +200,9 @@ with `// …`.
   the PostgreSQL docs.
 - Do not invent API: check `~/.cargo/registry/src/*/tokio-postgres-0.7.18/src/` or docs.rs. If
   something is uncertain, verify it with a probe in the scratchpad before writing it down.
+- **Never write program output from memory.** psql output, error messages, timings and
+  `Debug` output must be captured from a real run (psql 18, which prints `\conninfo` as a
+  table for instance) and pasted. Measured numbers say what they were measured on.
 
 ## Code conventions (stockroom, apps, playground)
 
@@ -233,6 +241,14 @@ with `// …`.
 - `Client` has `query_scalar`, `query_one_scalar` and `query_opt_scalar`. It also has
   `query_typed`, `query_typed_one`, `query_typed_opt`, `query_typed_raw`, `execute_typed` and
   `check_connection`.
+  - **Which version added what**, from the crate's CHANGELOG. The book says so when it uses
+    one of these:
+    - 0.7.11: `SimpleQueryMessage::RowDescription`, and `query_typed` on `Client`,
+      `Transaction` and `GenericClient`.
+    - 0.7.15: `check_connection`.
+    - 0.7.16: `query_scalar`, `query_one_scalar` and `query_opt_scalar`, on **`Client`
+      only** (not on `Transaction` or `GenericClient`).
+    - 0.7.17: `execute_typed`, `query_typed_one` and `query_typed_opt`, on all three.
 - `Client::transaction` and `build_transaction` take **`&mut self`**. `TransactionBuilder` has
   `isolation_level`, `read_only`, `deferrable` and `start`.
 - `IsolationLevel` has four variants: `ReadUncommitted`, `ReadCommitted`, `RepeatableRead` and
@@ -295,9 +311,11 @@ with `// …`.
   1. Reread its outline in PLAN.md §7 and its rows in the coverage matrix §5.3.
   2. Probe uncertain API in the scratchpad.
   3. Write the chapter.
-  4. Run `book.py check --chapter N`, `excerpts` and `links`.
+  4. Run `book.py fmt --chapter N`, then `book.py check --chapter N` (which includes excerpts
+     and links).
   5. Set its status in `book.toml`.
-  6. Re-render its PDF once the content is stable.
+  6. Rebuild the book PDF (`book.py book`) once the content is stable. Chapter PDFs are not
+     committed: `book.py pdf N` renders one into `target/book/` for a local look.
 - Each exercise solution that contains code is a runnable block too.
 - After any chapter is added or renamed, update the contents table in `00-introduction.md` and
   the neighbouring chapters' Previous/Next links.

@@ -126,3 +126,28 @@ async fn enums_composites_domains_and_arrays_of_them() {
         Some("positive_quantity_check")
     );
 }
+
+/// A migration adds an enum label before the code knows it. Thanks to `allow_mismatch`,
+/// reading the labels the code does know keeps working on fresh connections; only a row
+/// holding the new label fails to read.
+#[tokio::test]
+async fn a_new_enum_label_in_the_database_breaks_only_rows_that_use_it() {
+    let db = TestDb::new().await;
+    db.client()
+        .await
+        .batch_execute("ALTER TYPE order_status ADD VALUE 'refunded'")
+        .await
+        .unwrap();
+    let fresh = db.client().await; // loads the type with its new label
+    let paid: OrderStatus = fresh
+        .query_one("SELECT 'paid'::order_status", &[])
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(paid, OrderStatus::Paid);
+    let refunded = fresh
+        .query_one("SELECT 'refunded'::order_status", &[])
+        .await
+        .unwrap();
+    assert!(refunded.try_get::<_, OrderStatus>(0).is_err());
+}
