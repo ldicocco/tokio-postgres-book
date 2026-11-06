@@ -1,0 +1,164 @@
+# stockroom: a manual session, in the format of the VS Code "REST Client" extension
+# (send each request with "Send Request" above it). Start the service first:
+#
+#   cargo run -p stockroom -- migrate
+#   cargo run -p stockroom -- seed --reset        # optional: 3 stores, 1000 products, stock
+#   cargo run -p stockroom -- serve
+#
+# Watch live order events in a terminal while you go:
+#
+#   curl -N 'http://127.0.0.1:8080/orders/events?store=berlin-mitte'
+
+@base = http://127.0.0.1:8080
+
+### The process is up (does not touch the database)
+GET {{base}}/healthz
+
+### A pooled connection answers (check_connection), and the pool's state
+GET {{base}}/readyz
+
+### The database's sessions, through the simple query protocol (every value is text)
+GET {{base}}/admin/sessions
+
+### Stores
+GET {{base}}/stores
+
+### A store, with its address as the composite type `address`
+POST {{base}}/stores
+Content-Type: application/json
+
+{
+  "code": "berlin-mitte",
+  "name": "Berlin Mitte",
+  "address": { "street": "Main 1", "city": "Berlin", "postcode": "10115", "country": "DE" }
+}
+
+### The same code again: 409, from the constraint `stores_code_key`
+POST {{base}}/stores
+Content-Type: application/json
+
+{
+  "code": "berlin-mitte",
+  "name": "Again",
+  "address": { "street": "Main 2", "city": "Berlin", "postcode": "10115", "country": "DE" }
+}
+
+### A product; the response's ETag is its version
+POST {{base}}/products
+Content-Type: application/json
+
+{ "sku": "CHAIR-01", "name": "Garden chair", "priceCents": 4999, "tags": ["garden"], "attributes": { "color": "green" } }
+
+### A price of zero: 422, from the constraint `products_price_positive`
+POST {{base}}/products
+Content-Type: application/json
+
+{ "sku": "CHAIR-02", "name": "Free chair", "priceCents": 0 }
+
+### Update, if still at version 1 (send it twice: the second gets 412)
+PATCH {{base}}/products/CHAIR-01
+If-Match: "1"
+Content-Type: application/json
+
+{ "priceCents": 3999 }
+
+### One page of the catalog (keyset pagination: follow nextCursor)
+GET {{base}}/products?limit=5&tag=garden
+
+### Several products in one transaction, a savepoint each: the good ones stay
+POST {{base}}/products/batch
+Content-Type: application/json
+
+[
+  { "sku": "LAMP-01", "name": "Desk lamp", "priceCents": 2999, "tags": ["lighting"] },
+  { "sku": "CHAIR-01", "name": "Duplicate", "priceCents": 1 },
+  { "sku": "VASE-01", "name": "Vase", "priceCents": 1999 }
+]
+
+### A CSV price list, through COPY into a staging table and MERGE
+POST {{base}}/products/import
+Content-Type: text/csv
+
+sku,name,price_cents,tags
+CHAIR-01,Garden chair,4599,garden|sale
+RUG-01,Rug,8999,
+LAMP-01,Desk lamp,2999,lighting
+
+### The catalog as CSV, straight from COPY … TO STDOUT
+GET {{base}}/products/export.csv
+
+### The catalog as newline-delimited JSON, row by row from a RowStream
+GET {{base}}/products/stream
+
+### Receive stock (a transaction: the level and a ledger row)
+POST {{base}}/stores/berlin-mitte/stock/adjust
+Content-Type: application/json
+
+{ "sku": "CHAIR-01", "delta": 5, "reason": "delivery" }
+
+### Stock levels; `available` is the virtual generated column (PG 18)
+GET {{base}}/stores/berlin-mitte/stock
+
+### Place an order: reserves stock with guarded UPDATEs, pipelined
+# @name placeOrder
+POST {{base}}/orders
+Content-Type: application/json
+
+{
+  "store": "berlin-mitte",
+  "customer": { "name": "Ada Lovelace", "email": "ada@example.com" },
+  "lines": [ { "sku": "CHAIR-01", "quantity": 2 } ]
+}
+
+### More than is available: 409 insufficient_stock, and nothing reserved
+POST {{base}}/orders
+Content-Type: application/json
+
+{
+  "store": "berlin-mitte",
+  "customer": { "name": "Bob", "email": "bob@example.com" },
+  "lines": [ { "sku": "CHAIR-01", "quantity": 99 } ]
+}
+
+### The order
+GET {{base}}/orders/{{placeOrder.response.body.id}}
+
+### Pay (RETURNING old.status tells us what it was)
+POST {{base}}/orders/{{placeOrder.response.body.id}}/transition
+If-Match: "1"
+Content-Type: application/json
+
+{ "to": "paid" }
+
+### Skip a state: 409 invalid_transition
+POST {{base}}/orders/{{placeOrder.response.body.id}}/transition
+Content-Type: application/json
+
+{ "to": "collected" }
+
+### Ready for pickup
+POST {{base}}/orders/{{placeOrder.response.body.id}}/transition
+Content-Type: application/json
+
+{ "to": "ready" }
+
+### Collected: stock leaves the store, into the ledger
+POST {{base}}/orders/{{placeOrder.response.body.id}}/transition
+Content-Type: application/json
+
+{ "to": "collected" }
+
+### Move stock between stores (SERIALIZABLE, retried on conflict; needs `seed` data)
+POST {{base}}/stock/transfers
+Content-Type: application/json
+
+{ "from": "store-01", "to": "berlin-mitte", "sku": "SKU00001", "quantity": 1 }
+
+### Five aggregates, pipelined on one connection
+GET {{base}}/reports/dashboard
+
+### Sales per day
+GET {{base}}/reports/sales?from=2026-01-01&to=2026-12-31
+
+### A deliberately slow report: statement_timeout (5 s) ends it with 503 "timeout"
+GET {{base}}/reports/sales?from=2026-01-01&to=2026-12-31&delayMs=7000

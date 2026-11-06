@@ -5,8 +5,8 @@ The course goes from the first query to a production-shaped HTTP service built w
 Its form and voice follow the Rust course in
 another repository ("the reference course").
 
-Status: **Phase 0 (scaffold) done on 2026-11-06. Next is Phase 1 (stockroom).** Phases and
-acceptance criteria are in §9.
+Status: **Phases 0 (scaffold) and 1 (stockroom) done on 2026-11-06. Next is Phase 2 (apps).**
+Phases and acceptance criteria are in §9; what building stockroom taught is in §12.
 
 ---
 
@@ -146,76 +146,95 @@ The domain was chosen because it raises every interesting database problem in a 
 - **Edits from two admin tabs.** These motivate optimistic concurrency with ETags and a
   version column.
 
-#### Schema (PostgreSQL 18)
+#### Schema (PostgreSQL 18), as built
+
+The schema is in [stockroom/migrations/](stockroom/migrations/). Every constraint has a name,
+and `src/error.rs` turns each name into a message for API clients.
 
 ```sql
 CREATE TYPE order_status AS ENUM ('pending', 'paid', 'ready', 'collected', 'cancelled');
 CREATE TYPE address      AS (street text, city text, postcode text, country char(2));
-CREATE DOMAIN sku        AS text    CHECK (VALUE ~ '^[A-Z0-9]{3,12}(-[A-Z0-9]{1,6})?$');
-CREATE DOMAIN quantity   AS integer CHECK (VALUE >= 0);
+CREATE DOMAIN sku               AS text    CONSTRAINT sku_format CHECK (VALUE ~ '^[A-Z0-9]{3,12}(-[A-Z0-9]{1,6})?$');
+CREATE DOMAIN positive_quantity AS integer CONSTRAINT positive_quantity_check CHECK (VALUE > 0);
 
-stores          (id uuid PK, code text UNIQUE, name text, address address, created_at timestamptz)
-products        (id uuid PK, sku sku UNIQUE, name text, price_cents bigint CHECK (> 0),
-                 tags text[], attributes jsonb, version int, created_at, updated_at)
-stock           (store_id, product_id, on_hand quantity, reserved quantity,
-                 CHECK (reserved <= on_hand), PK (store_id, product_id))
-orders          (id uuid PK, store_id, status order_status, customer jsonb, total_cents bigint,
+stores          (id uuid PK DEFAULT uuidv7(), code text UNIQUE, name text, address address, created_at)
+products        (id, sku sku UNIQUE, name, price_cents bigint CHECK (> 0), tags text[], attributes jsonb,
                  version int, created_at, updated_at)
-order_lines     (order_id, product_id, quantity int CHECK (> 0), unit_price_cents bigint)
-stock_movements (id bigserial, store_id, product_id, delta int, reason text, at timestamptz)
-outbox          (id bigserial, topic text, payload jsonb, attempts int, available_at, done_at)
--- trigger: an orders status change → pg_notify('order_events', json) + an outbox row
+stock           (store_id, product_id, on_hand int CHECK (>= 0), reserved int CHECK (>= 0),
+                 available int GENERATED ALWAYS AS (on_hand - reserved) VIRTUAL,
+                 CHECK (reserved <= on_hand), PK (store_id, product_id))
+orders          (id, store_id, status order_status, customer jsonb, total_cents bigint, version int, …)
+order_lines     (order_id, product_id, quantity positive_quantity, unit_price_cents bigint)
+stock_movements (id bigint IDENTITY, store_id, product_id, delta int, reason text, at timestamptz)
+outbox          (id bigint IDENTITY, topic, payload jsonb, attempts, last_error, available_at, done_at)
+-- 0002: trigger on INSERT / UPDATE OF status → pg_notify('order_events', json), an outbox row,
+--       and pg_notify('outbox', '')
 ```
 
 stockroom uses modern PostgreSQL where it fits. The book notes the version each feature needs
 the first time it appears:
 
 - `DEFAULT uuidv7()` for every UUID key (PG 18). The `uuid` crate maps the keys to `Uuid`.
-- `RETURNING old.status, new.status` in order transitions (PG 18).
-- A virtual generated column, `stock.available = on_hand - reserved` (PG 18).
-- `MERGE` for the import upsert (PG 15). The book compares it with `INSERT … ON CONFLICT`.
+- `RETURNING old.status` in order transitions (PG 18).
+- A virtual generated column, `stock.available` (PG 18). PG 18 refuses one over domain-typed
+  columns ("generation expression uses user-defined type"), so `on_hand` and `reserved` are
+  plain integers, and the domain sits on `order_lines.quantity` instead.
+- `MERGE … RETURNING merge_action()` for the CSV import (PG 15 and 17). The book compares it with
+  `INSERT … ON CONFLICT`.
+- `COPY … (FORMAT csv, HEADER MATCH)` (PG 15).
 
-#### HTTP API (axum 0.8)
+#### HTTP API (axum 0.8), as built
 
-| Method and path | What it shows |
-|---|---|
-| `GET /healthz`, `GET /readyz` | `check_connection`, pool status, `simple_query("SELECT 1")` |
-| `GET /stores`, `POST /stores` | A **composite** type (`address`) through a derive |
-| `GET /products?tag=&cursor=&limit=` | **Keyset pagination**, `= ANY($1)` with an array parameter, `prepare_cached` |
-| `GET /products/{sku}`, `POST /products` | A **domain** type (`sku`), `UNIQUE_VIOLATION` → 409, `CHECK_VIOLATION` → 422 |
-| `PATCH /products/{sku}` with `If-Match` | **Optimistic concurrency**: a version column, and 412 on a mismatch |
-| `GET /products/stream` | `query_raw` → `RowStream` → an NDJSON response body, with backpressure |
-| `GET /products/export.csv` | `copy_out` → a streamed CSV response |
-| `POST /products/import` (CSV body) | The request body stream → `copy_in` into a temp staging table → upsert in one transaction |
-| `GET /stores/{code}/stock`, `POST /stores/{code}/stock/adjust` | A transaction plus a ledger row |
-| `POST /orders` | **Reserve stock**: a `SERIALIZABLE` transaction with a retry on 40001/40P01, savepoints, `GenericClient` repository functions |
-| `GET /orders/{id}`, `POST /orders/{id}/transition` | A **Postgres enum** ↔ a Rust enum state machine, `SELECT … FOR UPDATE` |
-| `GET /orders/events` | **SSE**: a dedicated `LISTEN` connection driven with `poll_message` → `broadcast` → `Sse` |
-| `GET /reports/dashboard` | **Pipelining**: five aggregates with `try_join!` on one connection |
-| `GET /reports/sales?from=&to=` | A heavy query with a deadline: `statement_timeout`, plus a `CancelToken` when the client disconnects |
-| `GET /admin/sessions` | `simple_query` over `pg_stat_activity`, and `Connection::parameter` |
+| Method and path | What it shows | Code |
+|---|---|---|
+| `GET /healthz`, `GET /readyz` | Liveness without the database; readiness with `check_connection` and the pool's `status()` | `http/health.rs` |
+| `GET /admin/sessions` | `simple_query` over `pg_stat_activity` (every value comes back as text), and what `Connection::parameter` reported to the listener | `http/health.rs`, `repo/reports.rs` |
+| `GET /stores`, `POST /stores` | A **composite** type (`address`) through a derive; 409 and 422 from constraint names | `repo/stores.rs` |
+| `GET /products?tag=&cursor=&limit=` | **Keyset pagination** with an opaque cursor, `tags @> ARRAY[$2]`, `prepare_cached` | `http/products.rs`, `repo/products.rs` |
+| `GET /products/{sku}`, `POST /products` | A **domain** parameter (`Sku`'s hand-written `accepts`), an ETag | `repo/products.rs`, `domain/sku.rs` |
+| `PATCH /products/{sku}` with `If-Match` | **Optimistic concurrency**: `WHERE version = coalesce($2, version)`, and 412 with the current version | `repo/products.rs` |
+| `POST /products/batch` | **Savepoints**: one per item, so a failed insert does not abort the transaction | `http/products.rs` |
+| `GET /products/stream` | `query_raw` → `RowStream` → an NDJSON body that owns the pooled connection | `http/products.rs` |
+| `GET /products/export.csv` | `copy_out` → a streamed CSV body (NULL versus `""` in CSV) | `http/products.rs` |
+| `POST /products/import` | The request body streamed into `copy_in` (a temp table, `HEADER MATCH`), a duplicate check, and `MERGE`; COPY errors reported with their line | `repo/products.rs` |
+| `GET /stores/{code}/stock`, `POST /stores/{code}/stock/adjust` | The virtual column; a plain `transaction()` plus a ledger row | `http/stock.rs`, `repo/stock.rs` |
+| `POST /stock/transfers` | **SERIALIZABLE with retries** (`db::in_transaction`), with rows locked in a fixed order so that opposite transfers do not deadlock | `repo/stock.rs`, `db/retry.rs` |
+| `POST /orders` | **Reserving stock without overselling**: guarded `UPDATE … WHERE available >= $3` at READ COMMITTED, **pipelined** with `try_join_all`, locked in product-id order; lines inserted with `unnest` of three arrays | `repo/orders.rs` |
+| `GET /orders/{id}` | Two pipelined queries; `Json<Customer>` from `jsonb` | `repo/orders.rs` |
+| `POST /orders/{id}/transition` | A **Postgres enum** ↔ a Rust state machine; `status = ANY($3)` with an enum array; `RETURNING old.status`; stock effects | `repo/orders.rs`, `domain/order_status.rs` |
+| `GET /orders/events?store=` | **SSE** from a dedicated `LISTEN` connection driven with `poll_message`, via `broadcast`; `resync` on lag or reconnect; ends at shutdown | `notify/listener.rs`, `http/events.rs` |
+| `GET /reports/dashboard` | **Pipelining**: five aggregates with `try_join!` on one connection; `numeric` → `rust_decimal` | `repo/reports.rs` |
+| `GET /reports/sales?from=&to=&delayMs=` | `statement_timeout` (503 `timeout`), and **`CancelOnDrop`**: an abandoned query is cancelled with the `CancelToken` and its connection discarded | `http/reports.rs`, `db/cancel.rs` |
 
-#### Command line (`stockroom <subcommand>`)
+#### Command line (`stockroom <subcommand>`), as built
 
-| Subcommand | What it shows |
-|---|---|
-| `migrate` | Embedded migrations, `pg_advisory_lock`, `batch_execute`, logging server **notices** through `poll_message` |
-| `seed --products N` | **Binary COPY** with `BinaryCopyInWriter` for bulk data |
-| `export --batch N` | A `REPEATABLE READ, READ ONLY, DEFERRABLE` transaction with a **portal** (`bind` + `query_portal`), and `BinaryCopyOutStream` |
-| `serve` | Everything above, plus the outbox worker (`FOR UPDATE SKIP LOCKED`, woken by `NOTIFY`) and graceful shutdown |
+| Subcommand | What it shows | Code |
+|---|---|---|
+| `migrate` | Embedded migrations, `pg_advisory_lock`, transactional DDL, checksums, and server **notices** through `poll_message` | `db/migrate.rs`, `db/connect.rs` |
+| `seed [--reset] --stores N --products N --movements N` | **Binary COPY** with `BinaryCopyInWriter` (2,000 products and 50,000 ledger rows in under a second), and an array of a composite type through `unnest` | `cli/seed.rs` |
+| `export products\|movements [--out F] [--batch N]` | Products through a **portal** in a `SERIALIZABLE, READ ONLY, DEFERRABLE` transaction; movements through `copy_out` and `BinaryCopyOutStream` to CSV | `cli/export.rs` |
+| `serve` | Everything above, plus the listener, the outbox worker (`FOR UPDATE SKIP LOCKED`, woken by `NOTIFY`, delivery through a `Deliver` trait), and graceful shutdown on SIGTERM | `app.rs`, `worker/outbox.rs` |
 
 **Cross-cutting concerns:**
 
-- **Errors.** `AppError` uses `thiserror` and maps `SqlState` to an HTTP response, and never
-  leaks `DbError` text to clients.
-- **Logging.** `tracing` spans record the duration of each SQL statement.
-- **Configuration.** Settings come from environment variables, and `Config` is built from
-  `DATABASE_URL` plus `application_name`, `connect_timeout`, `keepalives` and `options`
-  (`-c statement_timeout=…`).
-- **TLS.** An optional cargo feature `tls` uses `tokio-postgres-rustls`.
-- **Tests.** Each test gets its own database, cloned from a migrated template. HTTP tests use
-  `tower::ServiceExt::oneshot`. A concurrency test reserves stock from 50 tasks at once and
-  proves that no order oversells.
+- **Errors.** `AppError` (`error.rs`, with thiserror) classifies a `tokio_postgres::Error` once, by
+  SQLSTATE and by constraint name. `DbError` text goes to the log, never to a client. The one
+  exception is COPY data errors (class 22), which quote the client's own file back with its
+  line number.
+- **Logging.** `tracing`: each repository function is a debug span, and `RUST_LOG=stockroom=debug`
+  logs its duration.
+- **Configuration.** clap flags with environment fallbacks (`config.rs`), plus `.env` through
+  dotenvy. `Config` adds `application_name`, `connect_timeout`, keepalives, and server-side
+  `statement_timeout`, `lock_timeout` and `idle_in_transaction_session_timeout` through
+  `options`.
+- **TLS.** The cargo feature `tls` (`db/tls.rs`) uses tokio-postgres-rustls with the ring
+  provider. It was verified against the docker server: it connects with `--db-ca-file`, fails
+  with `UnknownIssuer` on the system roots, and `sslmode=disable` is refused.
+- **Tests.** 43 tests in `tests/`: one database per test, cloned from a template; HTTP through
+  `oneshot`. The concurrency tests are oversell (passed 50 out of 50 runs), orders sharing
+  products, and transfers in both directions. Event tests cover the listener, a reconnect after
+  `pg_terminate_backend`, SSE, the outbox and two `SKIP LOCKED` workers. There are also tests of
+  cancellation on the server and of `statement_timeout`.
 
 ### 5.2 Example programs (`apps/`)
 
@@ -235,42 +254,42 @@ The rule is that every public item of `tokio-postgres` 0.7.18 gets at least one 
 example in the book, and the important ones also appear in stockroom. Chapter numbers refer to
 §7.
 
-| API item | Ch | stockroom / app |
+| API item | Ch | stockroom (paths under `stockroom/src/`) / app |
 |---|---|---|
-| `connect`, `NoTls`, `Client`/`Connection` split, spawning the connection | 1 | `db/connect.rs` |
+| `connect`, `NoTls`, `Client`/`Connection` split, spawning the connection | 1 | `db/connect.rs`, `tests/common` |
 | `Config` (`FromStr`, key/value and URL forms, builder setters) | 1, 12 | `config.rs` |
-| `Connection::parameter` | 1 | `/admin/sessions` |
-| `Client::is_closed`, `check_connection` | 1, 12 | `/healthz`, pglisten |
-| `batch_execute` | 2 | `migrate` |
-| `execute`, `query`, `query_one`, `query_opt` | 2 | the repository layer |
-| `query_scalar`, `query_one_scalar`, `query_opt_scalar` | 2 | the repository layer |
-| `simple_query`, `SimpleQueryMessage` (`Row`, `CommandComplete`, `RowDescription`), `SimpleQueryRow`, `SimpleColumn` | 2 | pgq, `/admin/sessions` |
+| `Connection::parameter` | 1 | `notify/listener.rs` → `/admin/sessions` |
+| `Client::is_closed`, `check_connection` | 1, 12 | `http/health.rs` (`/readyz`), pglisten |
+| `batch_execute` | 2 | `db/migrate.rs`, `repo/products.rs` (staging table) |
+| `execute`, `query`, `query_one`, `query_opt` | 2 | `repo/*.rs` |
+| `query_scalar`, `query_one_scalar`, `query_opt_scalar` | 2 | `repo/reports.rs` (dashboard) |
+| `simple_query`, `SimpleQueryMessage` (`Row`, `CommandComplete`, `RowDescription`), `SimpleQueryRow`, `SimpleColumn` | 2 | pgq, `repo/reports.rs` (`sessions`) |
 | `simple_query_raw`, `SimpleQueryStream` | 9 | pgq (streaming mode) |
-| `Row` (`get`, `try_get`, `columns`, `len`, `is_empty`, `raw_size_bytes`), `Column` | 3 | models |
-| `prepare`, `Statement` (`params`, `columns`), `ToStatement` | 4 | pgq `--describe` |
+| `Row` (`get`, `try_get`, `columns`, `len`, `is_empty`, `raw_size_bytes`), `Column` | 3 | `TryFrom<&Row>` in `repo/*.rs` |
+| `prepare`, `Statement` (`params`, `columns`), `ToStatement` | 4 | pgq `--describe`, `cli/export.rs`, `tests/types.rs` |
 | `prepare_typed` | 4 | — |
-| `query_typed`, `query_typed_one`, `query_typed_opt`, `query_typed_raw`, `execute_typed` | 4 | the repository layer (PgBouncer-safe paths) |
-| `clear_type_cache` | 5 | `migrate` (after `ALTER TYPE`) |
+| `query_typed`, `query_typed_one`, `query_typed_opt`, `query_typed_raw`, `execute_typed` | 4 | playground only (stockroom prepares and caches) |
+| `clear_type_cache` | 5 | `db/migrate.rs` |
 | `types::{ToSql, FromSql, FromSqlOwned, IsNull, Type, Kind, Field, WrongType, WasNull, accepts!, to_sql_checked!}` | 3, 5 | `domain/*.rs` |
-| `#[derive(ToSql, FromSql)]`: enum, domain, composite, `transparent`, `rename_all`, `allow_mismatch` | 5 | `OrderStatus`, `Address`, `Sku`, `Cents` |
-| `types::Json<T>`, the `with-serde_json-1` feature | 3, 5 | `products.attributes`, `orders.customer` |
+| `#[derive(ToSql, FromSql)]`: enum, domain, composite, `transparent`, `rename_all`, `allow_mismatch` | 5 | `domain/`: `OrderStatus`, `Address`, `Quantity`, `Cents`; `Sku` by hand |
+| `types::Json<T>`, the `with-serde_json-1` feature | 3, 5 | `repo/orders.rs` (`Json<Customer>`), `products.attributes` (`Value`) |
 | Feature flags `with-uuid-1`, `with-jiff-0_2`, `array-impls` (others shown in a table) | 3 | the whole project |
-| `error::{Error, DbError, SqlState, Severity, ErrorPosition}`, `Error::{code, as_db_error, is_closed, into_source}` | 6 | `error.rs` |
-| Pipelining (`join!`, `try_join!`, `buffer_unordered`), `Arc<Client>` | 7 | `/reports/dashboard` |
-| `transaction`, `Transaction::{commit, rollback}`, rollback on drop | 8 | `POST /orders` |
-| `build_transaction`, `TransactionBuilder::{isolation_level, read_only, deferrable, start}`, `IsolationLevel` | 8 | `place_order`, `export` |
-| `Transaction::{transaction, savepoint}` (nested transactions) | 8 | `place_order` (partial failure) |
-| `GenericClient` | 8, 14 | `repo/*.rs` |
-| `query_raw`, `RowStream` (`rows_affected`), `BorrowToSql`, `execute_raw` | 9 | `/products/stream` |
-| `Transaction::{bind, bind_raw, query_portal, query_portal_raw}`, `Portal` | 9 | `export` |
-| `copy_in`, `CopyInSink` (`finish`), `copy_out`, `CopyOutStream` | 10 | import and export endpoints, pgload |
-| `binary_copy::{BinaryCopyInWriter, BinaryCopyOutStream, BinaryCopyOutRow}` | 10 | `seed`, `export`, pgload |
-| `Connection::poll_message`, `AsyncMessage::{Notification, Notice}`, `Notification` | 11 | the SSE listener, `migrate` notices, pglisten |
-| `cancel_token`, `CancelToken::{cancel_query, cancel_query_raw}` | 12 | `/reports/sales`, the cancel-on-drop guard |
-| `Config::{connect_timeout, keepalives*, tcp_user_timeout, target_session_attrs, load_balance_hosts, hostaddr, host_path, options, channel_binding, ssl_mode, ssl_negotiation}` | 12 | `config.rs` |
-| `tls::{MakeTlsConnect, TlsConnect}`, `postgres-native-tls`, `postgres-openssl`, `tokio-postgres-rustls` | 12 | the `tls` cargo feature |
+| `error::{Error, DbError, SqlState, Severity, ErrorPosition}`, `Error::{code, as_db_error, is_closed, into_source}` | 6 | `error.rs`, `repo/products.rs` (`input_error`) |
+| Pipelining (`join!`, `try_join!`, `buffer_unordered`), `Arc<Client>` | 7 | `repo/reports.rs`, `repo/orders.rs` (reservations, `get`), `repo/stock.rs` |
+| `transaction`, `Transaction::{commit, rollback}`, rollback on drop | 8 | `http/stock.rs` (`adjust`), `db/retry.rs` |
+| `build_transaction`, `TransactionBuilder::{isolation_level, read_only, deferrable, start}`, `IsolationLevel` | 8 | `db/retry.rs`, `cli/export.rs` |
+| `Transaction::{transaction, savepoint}` (nested transactions) | 8 | `http/products.rs` (`create_batch`) |
+| `GenericClient` (tokio-postgres's; deadpool's in stockroom) | 8, 14 | `repo/*.rs` |
+| `query_raw`, `RowStream` (`rows_affected`), `BorrowToSql`, `execute_raw` | 9 | `http/products.rs` (`stream`), `db::slice_iter` |
+| `Transaction::{bind, bind_raw, query_portal, query_portal_raw}`, `Portal` | 9 | `cli/export.rs` |
+| `copy_in`, `CopyInSink` (`finish`), `copy_out`, `CopyOutStream` | 10 | `repo/products.rs` (import), `http/products.rs` (export), pgload |
+| `binary_copy::{BinaryCopyInWriter, BinaryCopyOutStream, BinaryCopyOutRow}` | 10 | `cli/seed.rs`, `cli/export.rs`, pgload |
+| `Connection::poll_message`, `AsyncMessage::{Notification, Notice}`, `Notification` | 11 | `notify/listener.rs`, `db/connect.rs` (notices), pglisten |
+| `cancel_token`, `CancelToken::{cancel_query, cancel_query_raw}` | 12 | `db/cancel.rs` (`CancelOnDrop`) |
+| `Config::{connect_timeout, keepalives*, tcp_user_timeout, target_session_attrs, load_balance_hosts, hostaddr, host_path, options, channel_binding, ssl_mode, ssl_negotiation}` | 12 | `config.rs` (timeouts, keepalives, options); the rest in the playground |
+| `tls::{MakeTlsConnect, TlsConnect}`, `postgres-native-tls`, `postgres-openssl`, `tokio-postgres-rustls` | 12 | `db/tls.rs` (the `tls` feature) |
 | `Config::connect_raw`, `Socket`, the `runtime` feature | 12 | lagproxy |
-| deadpool-postgres (`Manager`, `RecyclingMethod`, `prepare_cached`, `Object`), bb8 for comparison | 13 | `db/pool.rs`, minipool |
+| deadpool-postgres (`Manager`, `RecyclingMethod`, `prepare_cached`, `Object`, `Object::take`), bb8 for comparison | 13 | `db/pool.rs`, `db/cancel.rs`, `http/mod.rs` (`Db`), minipool |
 
 The deprecated `Client::cancel_query` is mentioned only to say that `cancel_token` replaces it.
 The `js` feature, which targets wasm, is not covered.
@@ -703,11 +722,16 @@ stockroom should change, change stockroom first, then rerun `excerpts`.
 
 ## 11. Risks and items to verify while writing
 
-- **The `AsyncFnMut` retry helper over `Transaction<'_>`** (Chapter 8). Verify that it compiles
-  on 1.99. If it does not, fall back to boxed futures with `for<'a> FnMut(&'a mut Transaction)
-  -> BoxFuture<'a, …>` and explain why.
-- **tower-http 0.7** may have changed `TimeoutLayer` and `RequestBodyLimitLayer`. Check against
-  docs.rs.
+- ~~**The `AsyncFnMut` retry helper over `Transaction<'_>`** (Chapter 8).~~ **Resolved
+  while building stockroom.** It compiles, but an axum handler that calls it does not: the
+  error is "implementation of `Send` is not general enough". Two forms work. stockroom uses the
+  first; Chapter 8 shows the error and both fixes, and §12 has the details.
+  - `for<'t> FnMut(&'t Transaction<'t>, &'t A) -> BoxFuture<'t, …>`, with the input passed as an
+    argument.
+  - `FnMut() -> Fut`, where the future owns its connection.
+- ~~**tower-http 0.7**~~ **Checked:** `TimeoutLayer::new` is deprecated in favour of
+  `TimeoutLayer::with_status_code(status, duration)`, and `RequestBodyLimitLayer::new` is
+  unchanged.
 - **Pipelining and round-trip measurements** depend on lagproxy. Assert on relative numbers,
   never absolute ones, so the examples stay deterministic.
 - **The head-of-line demonstration** (Chapter 9) relies on how the 0.7.18 internals behave
@@ -718,3 +742,30 @@ stockroom should change, change stockroom first, then rerun `excerpts`.
   `ON_ERROR` and `REJECT_LIMIT`, `RETURNING old/new`, virtual generated columns, and `uuidv7()`.
 - **Size.** About 19 chapters of 700–1,100 lines each. Write and verify one chapter at a time,
   never in batches without verification.
+
+## 12. Findings from building stockroom (material for the chapters)
+
+Each finding was hit for real while building stockroom on PG 18.6 and tokio-postgres 0.7.18,
+and each one is pinned down by a test or a comment in the code. Each belongs in the chapter
+named, as a runnable example where it can be one.
+
+| # | Finding | Chapter |
+|---|---|---|
+| 1 | **A parameter that targets a domain column is described as the domain itself** (`sku` → `Kind::Domain(Text)`), so a plain `&str` or `i32` fails *on the client* with "error serializing parameter 0: cannot convert between the Rust type `&str` and the Postgres type `sku`". It works with a SQL cast (`$1::text`), with `query_typed` and `Type::TEXT`, with a derived domain newtype, or with a hand-written `accepts`. In `WHERE sku = $1` and `sku = ANY($1)` the parameter is inferred as `text` / `text[]`, and a plain `&str` works. | 5 |
+| 2 | **A result column of a domain type is described as its base type** (`text`, `int4`). A derived domain `FromSql` accepts both. | 5 |
+| 3 | **PG 18 virtual generated columns may not use user-defined types**, domains over `integer` included ("generation expression uses user-defined type"). | 5 (aside) |
+| 4 | **`unnest($1::address[])` in `FROM` expands each composite into its fields**, which breaks `INSERT … SELECT * FROM unnest(…)`. In the select list, `unnest` keeps each value whole. | 5 |
+| 5 | **A query future borrows its parameter slice.** A temporary `&[&id]` inside `try_join!`, or inside a `map` closure for `try_join_all`, does not live long enough. Fixes: bind the slice to a name (`let params: &[&(dyn ToSql + Sync)] = &[&id];`), or build it inside an `async move` block. | 7 |
+| 6 | **`AsyncFnMut(&Transaction<'_>)` helpers cannot be used from axum handlers** ("implementation of `Send` is not general enough"). A `BoxFuture` states `Send`; the input must be passed as an argument, because a `for<'t>` future cannot capture borrowed locals ("does not live long enough"). | 8 |
+| 7 | **Two SERIALIZABLE transfers in opposite directions deadlock** when each updates "its" row first. PostgreSQL detects it only after `deadlock_timeout` (1 s), and retries then run out. Locking both rows first, in a fixed order, turns this into fast serialization failures that retry cleanly. The 40-transfer test went from failing in 9 s to passing 10/10 at about 0.7 s each. | 8 |
+| 8 | **Guarded `UPDATE … WHERE available >= $3` at READ COMMITTED needs no retries**: the re-check after a lock wait (EvalPlanQual) sees the committed row, even through a virtual column. Sorting lines by product id prevents deadlocks between orders. Oversell test: 50 out of 50 runs. | 8 |
+| 9 | **`MERGE` with a duplicated *new* key in its source fails with a unique violation**, not a cardinality violation (that error is for an *existing* row matched twice). Check for duplicates in the staging table first. | 10 |
+| 10 | **CSV COPY writes NULL as an empty field and an empty string as `""`.** Export "no tags" as NULL (`nullif`) so that it reads back the same. | 10 |
+| 11 | **COPY data errors (class 22) carry the line**, in `DbError::where_()`: "COPY product_import, line 3, column price_cents: …". `HEADER MATCH` (PG 15) gives "column name mismatch in header line field 2". | 6, 10 |
+| 12 | **Cancelling an abandoned query has a race**: the cancel request is asynchronous, and the connection, back in the pool, may already be running someone else's query. `CancelOnDrop` therefore discards the connection (`Object::take`) after cancelling. Verified: a 1 s router timeout left no `pg_sleep` running. | 12, 16 |
+| 13 | **A streaming body must own its pooled connection.** `RowStream` and `CopyOutStream` do not borrow the client; if the `Object` returns to the pool, the next borrower's queries queue behind the remaining rows. | 9, 16 |
+| 14 | **SSE streams must end at shutdown** (`take_until(shutdown.cancelled_owned())`), or `with_graceful_shutdown` waits forever. Verified: SIGTERM stopped the server in under 50 ms with an SSE client attached. | 16 |
+| 15 | **`clone_on_copy`**: `NoTls` is `Copy` and rustls's connector is only `Clone`, so feature-generic code needs the clones and one crate-level `allow`. | 12 |
+| 16 | **`LISTEN` reconnect needs a resync**: anything notified while disconnected is lost. The listener publishes `Resync` after each successful `LISTEN`. Tested with `pg_terminate_backend`. | 11 |
+| 17 | **Per-test databases from a template** (`CREATE DATABASE … TEMPLATE`): cloning fails with 55006 while a session lingers on the template, so the harness retries. `Drop` cannot be async, so the cleanup runs on a thread with its own runtime. A full suite of 43 tests runs in about 6 s. | 17 |
+

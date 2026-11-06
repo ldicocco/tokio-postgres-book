@@ -36,14 +36,19 @@ Track it in `book/book.toml`: each chapter is `planned`, `draft` or `current`.
 - **Phase 0 (scaffold) is done** (2026-11-06): the workspace, the playground, `tools/book.py`
   with its tests, the PDF pipeline, the docker TLS server and the registry all exist.
   Chapter 0 is a `draft` stub with one runnable example.
-- **Next is Phase 1: stockroom** (PLAN.md §5.1, §9).
+- **Phase 1 (stockroom) is done** (2026-11-06). PLAN.md §5.1 describes it as built: every
+  endpoint and subcommand with the file that implements it. 43 tests pass, and the oversell test
+  passed 50 out of 50 runs. PLAN.md §12 lists 17 findings from building it, each tagged with
+  the chapter that should teach it.
+- **Next is Phase 2: the apps** (pgq, lagproxy, pgload, pglisten, minipool; PLAN.md §5.2).
 
 ## Commands
 
 ```bash
 # Gates: run all of them before calling work done
-cargo test --workspace                                   # stockroom + apps; needs DATABASE_URL
+cargo test --workspace                                   # stockroom + apps; needs ADMIN_DATABASE_URL (.env)
 cargo clippy --workspace --all-targets -- -Dwarnings
+cargo clippy --workspace --all-targets --features stockroom/tls -- -Dwarnings
 cargo fmt --all -- --check
 python3 tools/book.py check                              # registry, versions, mirrors, links, excerpts,
                                                          # then build + clippy + rustfmt + RUN every
@@ -62,8 +67,13 @@ python3 tools/book.py index                              # regenerate README.md'
 python3 tools/book.py pdf --stale && python3 tools/book.py book   # PDFs (pandoc + typst)
 docker/gen-certs.sh && docker compose up -d --wait       # optional TLS server (Chapter 12)
 
+# stockroom (reads .env: STOCKROOM_DATABASE_URL; every flag also has an env var, see --help)
 cargo run -p stockroom -- migrate
-cargo run -p stockroom -- serve                          # then use stockroom/stockroom.http
+cargo run -p stockroom -- seed --reset                   # binary COPY: stores, products, stock, ledger
+cargo run -p stockroom -- export products --out p.ndjson # portal batches; `movements` = binary COPY out
+cargo run -p stockroom -- serve                          # :8080; then stockroom/stockroom.http
+cargo test -p stockroom --test concurrency               # the oversell / deadlock / transfer tests
+cargo run -p stockroom --features tls -- --db-ca-file docker/certs/ca.crt migrate   # over TLS (:5434)
 ```
 
 ## Database
@@ -85,8 +95,9 @@ cargo run -p stockroom -- serve                          # then use stockroom/st
   - `tpbook` is the scratch database for manual experiments.
   - `tpbook_check` is **dropped and recreated** by every `book.py check`.
   - `stockroom` is for development.
-  - `stockroom_template` and the `stockroom_test_*` databases belong to the stockroom tests,
-    which create and drop them.
+  - `stockroom_template_<checksum>` (migrated once, rebuilt when the migrations change) and
+    the `stockroom_test_<uuid>` databases belong to the stockroom tests
+    (`stockroom/tests/common/mod.rs`). Each test clones the template and drops its clone.
   - Do not touch any other database on the server.
 - The optional `docker compose up -d --wait` runs Postgres 18 **with TLS on `:5434`**. It
   accepts TLS connections only (`hostssl`), and its certificate chains to
@@ -182,9 +193,22 @@ with `// …`.
 - SQL constants live with the repository function that uses them, or in `.sql` files pulled in
   with `include_str!`. Do not scatter them through handlers.
 - Errors:
-  - Libraries use `thiserror`, and binaries use `anyhow` at the top level.
-  - stockroom's `AppError` maps `SqlState` and constraint names to HTTP statuses.
-  - `DbError` messages never reach an HTTP client.
+  - Library code uses `thiserror`. `anyhow` is allowed only at the top level: `main.rs`, and
+    the startup and CLI paths (`app.rs`, `cli/*`, `db::tls`, `notify::listener`'s internals).
+  - stockroom's `AppError` maps `SqlState` and constraint names to HTTP statuses. Constraint
+    names are a contract: a new or renamed constraint in a migration needs its entry in
+    `error::constraint_message`.
+  - `DbError` messages never reach an HTTP client. The only exception is COPY data errors
+    (class 22), which quote the client's own CSV back with its line number.
+- stockroom's shapes, to reuse rather than reinvent:
+  - repository functions take `&impl deadpool_postgres::GenericClient` (or `&Transaction<'_>`)
+    and use `prepare_cached`;
+  - handlers get a connection from the `Db` extractor and a JSON body from `AppJson`;
+  - transactions that can collide go through `db::in_transaction(&mut db, isolation, &input,
+    |tx, input| repo::f(tx, input).boxed())`;
+  - row locks are always taken in a fixed order (by id).
+- `#![allow(clippy::clone_on_copy)]` in `stockroom/src/lib.rs` is deliberate: `MakeTls` is the
+  `Copy` type `NoTls` without the `tls` feature, and the clones are needed with it.
 - `tracing` handles logging. Log the SQL statement name and its duration, never parameter values
   (they may contain personal data).
 - stockroom targets PG 18. UUID keys default to `uuidv7()` in the schema and map to `uuid::Uuid`.
@@ -233,6 +257,23 @@ with `// …`.
   `CancelToken::cancel_query(tls)`.
 - deadpool-postgres 0.14.2 defaults to `RecyclingMethod::Fast`. Its other methods are
   `Verified`, `Clean` and `Custom`.
+  - Its `GenericClient` uses **native `async fn` in the trait**, not async-trait. It is
+    implemented for `Object` (= `deadpool_postgres::Client`) and deadpool's `Transaction`.
+  - `Object` derefs to `ClientWrapper`, which derefs to `tokio_postgres::Client`, so
+    `&object` coerces to `&tokio_postgres::Client`.
+  - `Object::take(obj)` detaches a connection from the pool.
+- **Domain types** (verified on PG 18.6):
+  - A *parameter* that targets a domain column is typed as the domain, so `&str` and `i32` are
+    refused on the client. Use a cast (`$1::text`), `query_typed` with the base `Type`, a
+    derived domain newtype, or a hand-written `accepts`.
+  - A domain *result column* is described as its base type.
+  - In `col = $1` and `col = ANY($1)` comparisons, the parameter is the base type.
+- **`AsyncFnMut(&Transaction<'_>)` closures cannot be called from axum handlers**: "implementation
+  of `Send` is not general enough". Use `for<'t> FnMut(&'t Transaction<'t>, &'t A) ->
+  BoxFuture<'t, _>` with the input passed as an argument (`stockroom/src/db/retry.rs`), or a
+  `FnMut() -> Fut` closure whose future owns its connection.
+- A query future borrows its parameter slice. When futures are joined, bind the slice to a name
+  or build it inside an `async move` block.
 
 ## Workflow
 
