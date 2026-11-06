@@ -40,7 +40,11 @@ Track it in `book/book.toml`: each chapter is `planned`, `draft` or `current`.
   endpoint and subcommand with the file that implements it. 43 tests pass, and the oversell test
   passed 50 out of 50 runs. PLAN.md §12 lists 17 findings from building it, each tagged with
   the chapter that should teach it.
-- **Next is Phase 2: the apps** (pgq, lagproxy, pgload, pglisten, minipool; PLAN.md §5.2).
+- **Phase 2 (apps) is done** (2026-11-06): lagproxy, pgq, pgload, pglisten and minipool, each a
+  library plus a binary with tests. PLAN.md §5.2 describes them as built, with measured
+  benchmark tables. `book.py check` now runs `needs=lagproxy` examples through lagproxy.
+- **Next is Phase 3a: Part I, Chapters 0–6** (PLAN.md §7, §9). Write one chapter at a time,
+  using the findings in PLAN.md §12.
 
 ## Commands
 
@@ -74,6 +78,13 @@ cargo run -p stockroom -- export products --out p.ndjson # portal batches; `move
 cargo run -p stockroom -- serve                          # :8080; then stockroom/stockroom.http
 cargo test -p stockroom --test concurrency               # the oversell / deadlock / transfer tests
 cargo run -p stockroom --features tls -- --db-ca-file docker/certs/ca.crt migrate   # over TLS (:5434)
+
+# The example apps (DATABASE_URL from .env)
+cargo run -p pgq -- -c "SELECT 1; SELECT now()"          # also --describe, --stream, --timing
+cargo run -p pglisten -- order_events outbox             # tail notifications
+cargo run -p lagproxy -- --delay-ms 5                    # :6543 → :5433, +5 ms each way
+cargo run -p pgload --release -- --rows 20000 [--delay-ms 1]    # Chapter 10's table
+cargo run -p minipool --release -- --tasks 64 --pool-size 8 [--delay-ms 2]   # Chapter 13's table
 ```
 
 ## Database
@@ -159,6 +170,8 @@ with `// …`.
 - If a runnable block needs special handling, put an HTML comment on the line before it:
   `<!-- check: no-run -->`, `<!-- check: needs=tls -->`, `<!-- check: needs=lagproxy -->` or
   `<!-- check: should-panic -->`.
+  - With `needs=lagproxy`, `DATABASE_URL` goes through lagproxy (+5 ms each way, a lower
+    bound), `DIRECT_DATABASE_URL` does not, and `LAGPROXY_DELAY_MS` holds the delay.
 - Output shown to the reader goes in a ` ```text ` block, SQL in ` ```sql `, and shell commands
   in ` ```bash `.
 

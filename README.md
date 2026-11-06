@@ -11,7 +11,7 @@ driver. Every runnable example in the book is compiled and run against PostgreSQ
 | [book/](book/) | The chapters, one Markdown file each, with their PDFs |
 | [playground/](playground/) | The scratch crate the examples run in. `examples/` is generated from the book. |
 | [stockroom/](stockroom/) | The capstone: a click-and-collect API (axum + tokio-postgres + deadpool) with migrations, a CLI (`migrate`, `seed`, `export`, `serve`), 43 tests, and a manual session in [stockroom.http](stockroom/stockroom.http) |
-| `apps/` | Small example programs: pgq, lagproxy, pgload, pglisten, minipool (Phase 2) |
+| [apps/](apps/) | Small example programs, each a library and a binary: [pgq](apps/pgq/) (a mini psql), [lagproxy](apps/lagproxy/) (adds network latency), [pgload](apps/pgload/) (five ways to bulk-load), [pglisten](apps/pglisten/) (a LISTEN tail that reconnects), [minipool](apps/minipool/) (a pool from scratch and a benchmark) |
 | [tools/](tools/) | `book.py`, which checks, extracts and renders, plus the PDF template |
 | [PLAN.md](PLAN.md) | Scope, chapter outline, stockroom spec, feature coverage and phases |
 | [CLAUDE.md](CLAUDE.md) | Conventions for working on the book and its code |

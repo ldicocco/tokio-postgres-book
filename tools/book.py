@@ -21,7 +21,8 @@ The conventions it enforces are in CLAUDE.md ("Writing the book"). In short:
   * A ```rust block is a complete program. It is extracted to playground/examples/, built,
     linted with clippy -D warnings, checked with rustfmt, and run with DATABASE_URL pointing
     at a freshly created database. An HTML comment on the line before it can adjust that:
-    <!-- check: no-run -->, <!-- check: needs=tls -->, <!-- check: needs=lagproxy -->,
+    <!-- check: no-run -->, <!-- check: needs=tls -->, <!-- check: needs=lagproxy --> (DATABASE_URL
+    then goes through apps/lagproxy, +5 ms each way; DIRECT_DATABASE_URL does not),
     <!-- check: should-panic -->, <!-- check: timeout=120 -->.
   * A ~~~ block is never compiled. If its first line is a comment naming a repository file
     (`// stockroom/src/repo.rs (excerpt)`), every line of it except comments and `…` lines
@@ -478,27 +479,84 @@ def admin_url():
     raise RuntimeError("set ADMIN_DATABASE_URL (or DATABASE_URL) in the environment or in .env")
 
 
-def environment_for(ex, base_env):
-    """`(env, None)` to run the example with, or `(None, reason)` to skip it."""
-    need = ex.block.check.get("needs")
-    if not need:
-        return base_env, None
-    if need == "tls":
-        url = os.environ.get("TLS_DATABASE_URL")
-        if not url:
-            return None, "needs=tls: TLS_DATABASE_URL is not set"
+LAGPROXY_DELAY_MS = 5  # one way; a round trip through the proxy costs at least twice this
+
+
+class LagProxy:
+    """apps/lagproxy, started once per `check` for the examples marked `needs=lagproxy`."""
+
+    def __init__(self, upstream_url):
+        parts = urlsplit(upstream_url)
+        build = subprocess.run(
+            ["cargo", "build", "-q", "-p", "lagproxy"], cwd=REPO_ROOT, capture_output=True, text=True
+        )
+        if build.returncode != 0:
+            raise RuntimeError(f"cannot build lagproxy:\n{build.stderr}")
+        self.process = subprocess.Popen(
+            [os.path.join(target_dir(), "debug", "lagproxy"), "--listen", "127.0.0.1:0",
+             "--upstream", f"{parts.hostname}:{parts.port or 5432}",
+             "--delay-ms", str(LAGPROXY_DELAY_MS)],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+        )
+        line = self.process.stdout.readline()  # "listening on 127.0.0.1:PORT → …"
+        m = re.search(r"listening on 127\.0\.0\.1:(\d+)", line)
+        if not m:
+            self.stop()
+            raise RuntimeError(f"lagproxy did not start: {line!r}")
+        self.port = int(m.group(1))
+
+    def through(self, url):
+        """`url`, pointed at the proxy instead of the server."""
         parts = urlsplit(url)
-        if not reachable(parts.hostname, parts.port or 5432):
-            return None, (
-                f"needs=tls: nothing listens on {parts.hostname}:{parts.port or 5432} "
-                "(start it with `docker compose up -d`)"
-            )
-        return {**base_env, "DATABASE_URL": url}, None
-    if need == "lagproxy":
-        # Phase 2 builds apps/lagproxy; this is where `check` will start it and point
-        # DATABASE_URL through it.
-        return None, "needs=lagproxy: apps/lagproxy does not exist yet (Phase 2)"
-    return None, f"unknown need {need!r}"
+        userinfo = parts.netloc.rpartition("@")[0]
+        netloc = (userinfo + "@" if userinfo else "") + f"127.0.0.1:{self.port}"
+        return urlunsplit(parts._replace(netloc=netloc))
+
+    def stop(self):
+        self.process.terminate()
+        try:
+            self.process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+
+
+class Needs:
+    """Decides how to run an example with `needs=…`, starting what it needs on first use."""
+
+    def __init__(self, base_env):
+        self.base_env = base_env
+        self.proxy = None
+
+    def environment_for(self, ex):
+        """`(env, None)` to run the example with, or `(None, reason)` to skip it."""
+        need = ex.block.check.get("needs")
+        if not need:
+            return self.base_env, None
+        if need == "tls":
+            url = os.environ.get("TLS_DATABASE_URL")
+            if not url:
+                return None, "needs=tls: TLS_DATABASE_URL is not set"
+            parts = urlsplit(url)
+            if not reachable(parts.hostname, parts.port or 5432):
+                return None, (
+                    f"needs=tls: nothing listens on {parts.hostname}:{parts.port or 5432} "
+                    "(start it with `docker compose up -d`)"
+                )
+            return {**self.base_env, "DATABASE_URL": url}, None
+        if need == "lagproxy":
+            if self.proxy is None:
+                self.proxy = LagProxy(self.base_env["DATABASE_URL"])
+            return {
+                **self.base_env,
+                "DATABASE_URL": self.proxy.through(self.base_env["DATABASE_URL"]),
+                "DIRECT_DATABASE_URL": self.base_env["DATABASE_URL"],
+                "LAGPROXY_DELAY_MS": str(LAGPROXY_DELAY_MS),
+            }, None
+        return None, f"unknown need {need!r}"
+
+    def stop(self):
+        if self.proxy:
+            self.proxy.stop()
 
 
 def run_example(ex, env, exe):
@@ -531,18 +589,20 @@ def run_examples(examples, keep_db):
     base_env = {**os.environ, "DATABASE_URL": check_url, "RUST_BACKTRACE": "0"}
     exe_dir = os.path.join(target_dir(), "debug", "examples")
     results = []
+    needs = Needs(base_env)
     try:
         for ex in examples:
             if ex.block.check.get("no-run"):
                 results.append((ex, "skip", 0.0, "no-run: compiled only"))
                 continue
-            env, reason = environment_for(ex, base_env)
+            env, reason = needs.environment_for(ex)
             if reason:
                 results.append((ex, "skip", 0.0, reason))
                 continue
             status, elapsed, detail = run_example(ex, env, os.path.join(exe_dir, ex.name))
             results.append((ex, status, elapsed, detail))
     finally:
+        needs.stop()
         if not keep_db:
             psql(admin, f"DROP DATABASE IF EXISTS {CHECK_DB} WITH (FORCE)")
     return results

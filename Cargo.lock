@@ -865,6 +865,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lagproxy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "tokio",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -936,6 +945,21 @@ name = "mime"
 version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d5848f5a9e8117cf94f2f90faac24a87ff81600ff8628c1e3deaab572e76bfa1"
+
+[[package]]
+name = "minipool"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "deadpool-postgres",
+ "dotenvy",
+ "futures-util",
+ "lagproxy",
+ "thiserror",
+ "tokio",
+ "tokio-postgres",
+]
 
 [[package]]
 name = "mio"
@@ -1030,6 +1054,50 @@ name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
+
+[[package]]
+name = "pglisten"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dotenvy",
+ "futures-util",
+ "jiff",
+ "tokio",
+ "tokio-postgres",
+ "tokio-util",
+ "uuid",
+]
+
+[[package]]
+name = "pgload"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "clap",
+ "csv",
+ "dotenvy",
+ "fastrand",
+ "futures-util",
+ "jiff",
+ "lagproxy",
+ "tokio",
+ "tokio-postgres",
+]
+
+[[package]]
+name = "pgq"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dotenvy",
+ "futures-util",
+ "tokio",
+ "tokio-postgres",
+]
 
 [[package]]
 name = "phf"

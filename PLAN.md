@@ -5,8 +5,9 @@ The course goes from the first query to a production-shaped HTTP service built w
 Its form and voice follow the Rust course in
 another repository ("the reference course").
 
-Status: **Phases 0 (scaffold) and 1 (stockroom) done on 2026-11-06. Next is Phase 2 (apps).**
-Phases and acceptance criteria are in §9; what building stockroom taught is in §12.
+Status: **Phases 0 (scaffold), 1 (stockroom) and 2 (apps) done on 2026-11-06. Next is Phase 3a
+(Part I: Chapters 0–6).** Phases and acceptance criteria are in §9; what building the software
+taught is in §12.
 
 ---
 
@@ -236,17 +237,38 @@ the first time it appears:
   `pg_terminate_backend`, SSE, the outbox and two `SKIP LOCKED` workers. There are also tests of
   cancellation on the server and of `statement_timeout`.
 
-### 5.2 Example programs (`apps/`)
+### 5.2 Example programs (`apps/`), as built
 
-These are small, single-purpose tools. Each one is the "real program" behind one or two chapters.
+These are small, single-purpose tools. Each one is a library (which the tests and the chapters
+use) plus a binary with `--help`, and each is the "real program" behind one or two chapters.
+They read `DATABASE_URL` from the environment or from `.env`.
 
-| App | Chapter(s) | Features |
-|---|---|---|
-| **pgq** | 2, 4 | A mini psql. It runs SQL with `simple_query` (several statements, `RowDescription`, `CommandComplete`), prints aligned tables, and has an `--describe` mode that uses `prepare` to show parameter and column types and `\timing`. |
-| **lagproxy** | 4, 7, 13 | A TCP proxy (about 60 lines of Tokio) that delays every packet by N ms. With it, round trips, pipelining and pool sizing show up in measurements on localhost. It is also used by `connect_raw` in Chapter 12. |
-| **pgload** | 10 | Loads a CSV into a table using one of five strategies: row-by-row `INSERT`, pipelined prepared `INSERT`, `UNNEST` arrays, text `COPY`, and binary `COPY`. It prints a timing table that Chapter 10 reproduces. |
-| **pglisten** | 11, 12 | `LISTEN` on N channels, printing notifications and notices. It reconnects with backoff and runs a catch-up query after reconnecting. |
-| **minipool** | 13 | A bounded pool built from a `Semaphore` and a `Mutex<Vec<Client>>`, with a guard that returns its connection on `Drop` and a health check on checkout. It includes a benchmark against deadpool-postgres. |
+| App | Chapter(s) | What it shows | Tests |
+|---|---|---|---|
+| **lagproxy** | 4, 7, 10, 12, 13 | A TCP proxy that delays every chunk by N ms each way. It adds latency without limiting bandwidth: chunks are timestamped and forwarded in order. It works as a library (`Proxy::start`, used in-process by pgload and minipool) and as a binary (used by `book.py check` for `needs=lagproxy`). The delay is a lower bound: on this Mac a round trip costs about `2 × delay + 3 ms`, because of timer granularity. | 2 (an echo server, no database) |
+| **pgq** | 2, 4, 9 | A mini psql. It uses `simple_query` with `RowDescription` and `CommandComplete`, renders tables like psql, prints notices through `poll_message`, and shows errors with their SQLSTATE. `--describe` uses `prepare` to show parameter and column types and source columns. `--stream` uses `simple_query_raw`. It also has `--timing` and an interactive mode. | 4 |
+| **pgload** | 10 | The same generated rows (with commas and quotes in them) loaded five ways: one `INSERT` at a time, pipelined `INSERT`, `unnest` batches, CSV `COPY`, and binary `COPY`. It prints a Markdown timing table, and with `--delay-ms` it connects through an in-process lagproxy using `connect_raw`. The test checks that all five store identical rows (an md5 fingerprint). | 1 |
+| **pglisten** | 11, 12 | A `LISTEN` tail built on a `run(config, options, on_event, shutdown)` library. It drives the connection with `poll_message`, quotes channel names with `quote_ident`, and reconnects with backoff. A catch-up query runs after each `LISTEN`, and an optional `check_connection` ping runs on an interval. | 4 (one unit test, three against PostgreSQL) |
+| **minipool** | 13 | A pool in about 100 lines: a `Semaphore`, a `Mutex<Vec<Client>>` used as a stack, a `Conn` guard (`Deref`/`DerefMut`, `detach`), a wait timeout, and `is_closed` plus an optional `check_connection` on checkout. The binary benchmarks one shared client, minipool and deadpool with `query_typed` (one round trip). | 7 |
+
+**Measured** (release build, PG 18.6 on localhost, Apple Silicon; Chapter 10 and 13 reproduce
+these):
+
+```text
+pgload --rows 20000                         pgload --rows 2000 --delay-ms 1
+| Strategy                 | Time    | ×     | Time    | ×      |
+| INSERT, one at a time    | 0.770 s | 100.6 | 9.742 s | 202.8  |
+| INSERT, pipelined        | 0.118 s |  15.4 | 0.196 s |   4.1  |
+| INSERT … unnest, batches | 0.013 s |   1.7 | 0.053 s |   1.1  |
+| COPY, CSV                | 0.012 s |   1.6 | 0.052 s |   1.1  |
+| COPY, binary             | 0.008 s |   1.0 | 0.048 s |   1.0  |
+
+minipool --tasks 64 --pool-size 8           ops/s, no delay    ops/s, 2 ms delay
+one shared client (pipelined), query        58,709             9,259
+minipool, 8 connections, query              72,514             1,080
+deadpool, 8 connections, query              72,767             1,068
+minipool / deadpool, transaction            31,083 / 30,369    375 / 377
+```
 
 ### 5.3 Feature coverage matrix
 
@@ -743,7 +765,7 @@ stockroom should change, change stockroom first, then rerun `excerpts`.
 - **Size.** About 19 chapters of 700–1,100 lines each. Write and verify one chapter at a time,
   never in batches without verification.
 
-## 12. Findings from building stockroom (material for the chapters)
+## 12. Findings from building the software (material for the chapters)
 
 Each finding was hit for real while building stockroom on PG 18.6 and tokio-postgres 0.7.18,
 and each one is pinned down by a test or a comment in the code. Each belongs in the chapter
@@ -768,4 +790,13 @@ named, as a runnable example where it can be one.
 | 15 | **`clone_on_copy`**: `NoTls` is `Copy` and rustls's connector is only `Clone`, so feature-generic code needs the clones and one crate-level `allow`. | 12 |
 | 16 | **`LISTEN` reconnect needs a resync**: anything notified while disconnected is lost. The listener publishes `Resync` after each successful `LISTEN`. Tested with `pg_terminate_backend`. | 11 |
 | 17 | **Per-test databases from a template** (`CREATE DATABASE … TEMPLATE`): cloning fails with 55006 while a session lingers on the template, so the harness retries. `Drop` cannot be async, so the cleanup runs on a thread with its own runtime. A full suite of 43 tests runs in about 6 s. | 17 |
+| 18 | **`Config::host` and `Config::port` *append*** to the lists of hosts and ports to try, so "redirecting" a parsed configuration silently keeps the original host first. Build a new `Config`, or use `connect_raw` with a stream you opened (pgload, minipool). | 1, 12 |
+| 19 | **`connect_raw` uses the stream as given.** `connect` sets `TCP_NODELAY` itself (`connect_socket.rs:27`); with `connect_raw` that is your job, along with keepalives and timeouts. | 12 |
+| 20 | **Tokio sleeps are late by about 1.3 ms on macOS** (1 ms took 2.28 ms; 10 ms took 11.87 ms), so lagproxy's delay is a lower bound. Examples must compare timings with each other, not with constants. | 4, 7 |
+| 21 | **Over latency, one pipelined client beats a pool** for independent queries: 64 tasks with a 2 ms delay ran 9,259 ops/s on one shared client against about 1,075 on a pool of 8, because the pool allows only 8 requests in flight. On localhost, pools are slightly faster thanks to server-side parallelism. Pools exist for transactions and isolation, not raw query throughput. | 7, 13 |
+| 22 | **Bulk loading:** one `INSERT` at a time is about 100× slower than binary COPY on localhost, and about 200× with a 2 ms round trip. Pipelining recovers most of it, and `unnest` batches come within 10% of COPY. (Table in §5.2.) | 10 |
+| 23 | **A pool that checks only `is_closed()` can hand out a connection that died while idle**, until its connection task has seen the server's FATAL message. A `check_connection()` on checkout costs a round trip and closes the gap. This is deadpool's `Fast` versus `Verified`. | 13 |
+| 24 | **Field order in a pool guard matters:** the client must go back to the idle stack *before* the semaphore permit is released, or a waiter can open a connection beyond `max_size`. | 13 |
+| 25 | **A `NOTIFY` in a rolled-back transaction is never delivered**, and a committed one is delivered at commit. Quoted channel names are case-sensitive and match `pg_notify('Name', …)` exactly; unquoted `LISTEN Name` folds to lower case. | 11 |
+| 26 | **`SimpleQueryMessage::CommandComplete` carries only a row count**, not the command tag: DDL reports 0, and there is no "CREATE TABLE" to print as psql does. | 2 |
 

@@ -1,0 +1,19 @@
+[package]
+name = "pgload"
+version = "0.1.0"
+description = "Five ways to load many rows into PostgreSQL, timed side by side"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true }
+csv = { workspace = true }
+dotenvy = { workspace = true }
+fastrand = { workspace = true }
+futures-util = { workspace = true }
+jiff = { workspace = true }
+lagproxy = { workspace = true }
+tokio = { workspace = true }
+tokio-postgres = { workspace = true }

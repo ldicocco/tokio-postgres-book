@@ -1,0 +1,19 @@
+[package]
+name = "pglisten"
+version = "0.1.0"
+description = "Tail PostgreSQL notifications: LISTEN, reconnect, catch up"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+dotenvy = { workspace = true }
+futures-util = { workspace = true }
+jiff = { workspace = true }
+tokio = { workspace = true }
+tokio-postgres = { workspace = true }
+tokio-util = { workspace = true }
+
+[dev-dependencies]
+uuid = { workspace = true }
