@@ -37,7 +37,7 @@ products, customers order for pickup at a store, and staff move orders from *pen
 | `migrations/` | the schema: domains, enum, composite, constraints with names, triggers | 5, 11, 14 |
 | `src/db/` | connecting, the pool, migrations, the retry helper, `CancelOnDrop`, TLS | 1, 8, 12, 13, 14 |
 | `src/domain/` | `Sku`, `Cents`, `Quantity`, `OrderStatus`, `Address`, `Customer` | 3, 5, 14 |
-| `src/repo/` | every SQL statement, one module per aggregate | 2–10, 14 |
+| `src/repo/` | the SQL that requests run, one module per aggregate | 2–10, 14 |
 | `src/http/` | the router, extractors and handlers | 15, 16 |
 | `src/error.rs` | `AppError`: SQLSTATE and constraint names → HTTP | 6, 15 |
 | `src/notify/` | the `LISTEN` connection and the in-process hub | 11, 16 |

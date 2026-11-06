@@ -54,7 +54,7 @@ Track it in `book/book.toml`: each chapter is `planned`, `draft` or `current`.
   `tokio-postgres-rustls`, `tokio-util` and `tower-http`. Findings: PLAN.md §12, rows 34–45.
   Notable: in 0.7.18 a `COPY … FROM STDIN` rejected as it starts kills the connection
   (rust-postgres issue #789, Chapter 10).
-- **Phase 4 (polish) is done** (2026-11-06): the book PDF rebuilt (293 pages), banners and
+- **Phase 4 (polish) is done** (2026-11-06): the book PDF rebuilt (270 pages), banners and
   exercise hints made uniform (17 Part I and II exercises lacked a *Hint*), cross-references
   checked, and the §5.3 coverage audit closed with one new example in §12.4. Appendix F
   (crates built on tokio-postgres) was researched from crates.io, docs.rs and the crates' source.

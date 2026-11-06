@@ -6,7 +6,7 @@ Its form and voice follow an existing Rust course that is not part of this repos
 reference course").
 
 Status: **All phases (0–4) done on 2026-11-06**: the scaffold, stockroom, the apps, Chapters 0–18
-and the appendix, all `current`; 156 runnable examples; every gate green; the book PDF (293
+and the appendix, all `current`; 156 runnable examples; every gate green; the book PDF (270
 pages) fresh. The §5.3 coverage audit found `host_path`, the keepalive setters and
 `tcp_user_timeout` without a runnable example, now added in §12.4. Phases and acceptance criteria are in §9; what building the software and
 writing the chapters taught is in §12.

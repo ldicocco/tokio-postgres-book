@@ -11,7 +11,7 @@ book's own tooling.**
 [![PostgreSQL 18](https://img.shields.io/badge/PostgreSQL-18-336791)](https://www.postgresql.org/docs/18/)
 [![Rust edition 2024](https://img.shields.io/badge/Rust-edition%202024-b7410e)](https://doc.rust-lang.org/edition-guide/rust-2024/)
 
-**Read it:** [the whole book as one PDF](book/tokio-postgres-book.pdf) (293 pages) ·
+**Read it:** [the whole book as one PDF](book/tokio-postgres-book.pdf) (270 pages) ·
 [start with Chapter 0](book/00-introduction.md) · [see the contents](#contents)
 
 ## Who it is for
@@ -179,7 +179,8 @@ python3 tools/book.py pdf --all                # every chapter written so far
 
 Both commands need [pandoc](https://pandoc.org) 3.x and [Typst](https://typst.app) 0.13 or newer
 (`brew install pandoc typst`). The Typst template is in [tools/pdf/](tools/pdf/), and rendering
-needs no network.
+needs no network. Only openly licensed fonts are used (Libertinus Serif and DejaVu Sans Mono ship
+with Typst; Libertinus Sans is in tools/pdf/fonts/), so every machine renders the same PDF.
 
 ## Contributing
 
@@ -196,7 +197,9 @@ The code (stockroom, the apps, the playground and the tooling) is licensed under
 
 at your option. The text of the book (the Markdown files in [book/](book/) and the PDF built from
 them) is licensed under the Creative Commons Attribution 4.0 International License
-([LICENSE-CC-BY-4.0](LICENSE-CC-BY-4.0)).
+([LICENSE-CC-BY-4.0](LICENSE-CC-BY-4.0)). The Libertinus Sans font files in
+[tools/pdf/fonts/](tools/pdf/fonts/), which the PDF embeds, are under the SIL Open Font License
+([OFL.txt](tools/pdf/fonts/OFL.txt)).
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in
 the work by you, as defined in the Apache-2.0 license, shall be licensed as above, without any

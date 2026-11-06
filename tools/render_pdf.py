@@ -16,8 +16,9 @@ into the (gitignored) `target/` directory, without a stamp.
 
 Prerequisites (one-time):  brew install pandoc typst   (pandoc 3.x, typst 0.13 or newer)
 
-No network is used. The fonts are macOS system fonts (Charter, Avenir Next, Menlo);
-elsewhere Typst falls back to the fonts it embeds and says so.
+No network is used. The fonts are openly licensed and travel with the repository: Libertinus
+Serif and DejaVu Sans Mono ship with Typst, and Libertinus Sans is in tools/pdf/fonts/ (SIL
+Open Font License). System fonts are ignored, so every machine renders the same PDF.
 """
 
 import os
@@ -31,6 +32,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PDF_DIR = os.path.join(REPO_ROOT, "tools", "pdf")
 TEMPLATE = os.path.join(PDF_DIR, "doc.typ")
 FILTER = os.path.join(PDF_DIR, "filters.lua")
+FONTS = os.path.join(PDF_DIR, "fonts")
 
 BOOK_TITLE = "Async PostgreSQL in Rust"
 
@@ -80,7 +82,7 @@ def compile_typst(source, out):
         main = os.path.join(tmpdir, "main.typ")
         with open(main, "w", encoding="utf-8") as f:
             f.write(source)
-        run(["typst", "compile", main, out])
+        run(["typst", "compile", "--font-path", FONTS, "--ignore-system-fonts", main, out])
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
     if not os.path.exists(out):

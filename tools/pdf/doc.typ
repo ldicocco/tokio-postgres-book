@@ -9,10 +9,16 @@
 //
 // A4, serif body, sans headings, a running header (left: the book title; right: the
 // current chapter) and the page number in the footer.
+//
+// Fonts (changed from the original template, which used macOS system fonts): only openly
+// licensed ones, so that the published PDF can embed them. Libertinus Serif and DejaVu Sans
+// Mono ship with Typst; Libertinus Sans is in tools/pdf/fonts/, under the SIL Open Font
+// License (OFL.txt there). render_pdf.py passes --ignore-system-fonts, so no other font can
+// end up in the PDF.
 
-#let serif = ("Charter", "Libertinus Serif")
-#let sans = ("Avenir Next", "Helvetica Neue")
-#let mono = ("Menlo", "DejaVu Sans Mono")
+#let serif = ("Libertinus Serif",)
+#let sans = ("Libertinus Sans",)
+#let mono = ("DejaVu Sans Mono",)
 
 #let accent = rgb("#1f5f99")
 #let ink = rgb("#1b1f24")
