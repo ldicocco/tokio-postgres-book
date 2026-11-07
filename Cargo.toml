@@ -1,5 +1,6 @@
 # The book's workspace: the playground the examples are compiled in, the example apps and
-# the capstone service. Every dependency version is declared once, here, and members say
+# the capstone service, plus the child project under orm/ (shelf, a small ORM, and its own
+# book; see orm/PLAN.md). Every dependency version is declared once, here, and members say
 # `{ workspace = true }`.
 #
 # The one exception is `playground/Cargo.toml`, which spells its versions out because it is
@@ -11,7 +12,15 @@
 
 [workspace]
 resolver = "3"
-members = ["playground", "stockroom", "apps/*"]
+members = [
+    "playground",
+    "stockroom",
+    "apps/*",
+    "orm/shelf",
+    "orm/shelf-macros",
+    "orm/shelf-codegen",
+    "orm/playground",
+]
 
 [workspace.package]
 edition = "2024"
@@ -22,6 +31,10 @@ repository = "https://github.com/ldicocco/tokio-postgres-book"
 [workspace.dependencies]
 # This workspace's own crates
 lagproxy = { path = "apps/lagproxy" }
+playground = { path = "playground" }
+shelf = { path = "orm/shelf" }
+shelf-macros = { path = "orm/shelf-macros" }
+shelf-codegen = { path = "orm/shelf-codegen" }
 
 # The subject of the book
 tokio-postgres = { version = "0.7.18", features = ["with-jiff-0_2", "with-serde_json-1", "with-uuid-1", "array-impls"] }
@@ -51,6 +64,14 @@ uuid = { version = "1.29.0", features = ["v7", "serde"] }
 jiff = { version = "0.2.39", features = ["serde"] }
 rust_decimal = { version = "1.43.0", features = ["db-tokio-postgres"] }
 csv = "1.4.0"
+
+# Procedural macros (the child project, orm/): syn 3 to parse, quote to generate,
+# prettyplease to show the expansion in the book
+syn = { version = "3.0.9", features = ["full"] }
+quote = "1.0.47"
+proc-macro2 = "1.0.107"
+prettyplease = "0.3.0"
+trybuild = "1.0.122"
 
 # Errors, logging, CLI
 thiserror = "2.0.21"

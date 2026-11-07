@@ -8,12 +8,34 @@
 #   path     Relative to book/.
 #   title    Must equal the chapter's own `# ` heading once the file exists.
 #   summary  One line, no trailing period: what the README's contents table shows.
-#   status   planned | draft | current.
+#   status   planned | sketch | draft | current.
 #              planned  the file may not exist yet; nothing is checked
+#              sketch   the file is the chapter's sketch, opening with its card
+#                       (`> **Sketch, <date>.**`; orm/SKETCHES.md); checked like a draft
 #              draft    the file exists; its runnable blocks, links and excerpts are checked
-#              current  finished: also included in the book PDF (book/tokio-postgres-book.pdf)
+#              current  finished
+#            The [book] table's pdf_statuses says which of them the book PDF contains: here
+#            only `current` (book/tokio-postgres-book.pdf).
 #
 # The outline each chapter is written from is in PLAN.md §7.
+#
+# The [book] table holds the book's own settings; `tools/book.py --book DIR` selects a book
+# by its directory (this one is the default; the shelf book is in orm/book/). Every key is
+# required: `book.py` lists them if one is missing.
+
+[book]
+title = "Async PostgreSQL in Rust"
+pdf = "tokio-postgres-book.pdf"
+playground = "playground"
+package = "playground"
+example_prefix = ""
+check_db = "tpbook_check"
+readme = "README.md"
+docs = ["README.md", "PLAN.md", "CLAUDE.md"]
+chapter_pdfs = "target/book"
+pdf_statuses = ["current"]
+kicker = "A practical course"
+subtitle = "tokio-postgres from the first query to a production-shaped axum service — for developers who know Rust, a little Tokio and some SQL."
 
 [[chapter]]
 id = "introduction"

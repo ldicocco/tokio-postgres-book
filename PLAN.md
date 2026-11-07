@@ -11,6 +11,10 @@ pages) fresh. The §5.3 coverage audit found `host_path`, the keepalive setters 
 `tcp_user_timeout` without a runnable example, now added in §12.4. Phases and acceptance criteria are in §9; what building the software and
 writing the chapters taught is in §12.
 
+A **child project**, shelf (a small ORM on tokio-postgres, with a second book that follows its
+build), started on 2026-11-07 on the branch `shelf`. It has its own plan,
+[orm/PLAN.md](orm/PLAN.md); §13 says how the two relate.
+
 ---
 
 ## 1. Goal and audience
@@ -119,8 +123,9 @@ tokio-postgres-book/
 │   ├── src/                 lib + bin (`stockroom serve|migrate|seed|export`)
 │   ├── tests/               integration tests against a real Postgres
 │   └── stockroom.http       a manual request collection (VS Code REST Client format)
+├── orm/                     the child project: shelf, a small ORM, and its book (§13, orm/PLAN.md)
 └── tools/
-    ├── book.py              list / extract / check / links / excerpts / pdf / book
+    ├── book.py              list / extract / check / links / excerpts / pdf / book (--book orm)
     └── pdf/                 doc.typ, filters.lua (copied from the reference course's pipeline)
 ```
 
@@ -364,6 +369,7 @@ cargo test --workspace            # stockroom integration tests need DATABASE_UR
 cargo clippy --workspace --all-targets -- -Dwarnings
 cargo fmt --all -- --check
 python3 tools/book.py check       # every runnable block in the book
+python3 tools/book.py --book orm check   # the same for the child project's book (§13)
 python3 tools/book.py excerpts    # the book agrees with stockroom
 python3 tools/book.py links
 ```
@@ -835,3 +841,21 @@ named, as a runnable example where it can be one.
 | 44 | **axum, measured:** a streaming body that does not own its `Object` made the next request (pool of 2) wait behind 200,000 unread rows; owning it fixed that. `TimeoutLayer` (200 ms) alone left the `pg_sleep` running; with a cancel-on-drop guard, nothing. `RequestBodyLimitLayer` answers 413 up front when `Content-Length` is over the limit. The outbox demo delivered `[1,2,3,4,5,4,5]` (at least once). An SSE body ends when its `take_until` token fires; `stockroom serve` exited 1.5 ms after SIGTERM with an SSE client attached, and the outbox delivered 16 ms after an order's creation. axum's own rejection statuses are 400 (syntax), 415 (content type) and 422 (shape). Handlers returning `Result<_, Response>` trip clippy's `result_large_err`: use a small error type. | 15, 16, 18 |
 | 45 | **Testing, measured:** a deadlock victim's locks are released at the error, before any `ROLLBACK`, so the other transaction proceeds (§17.7 does not hang); a write skew under `SERIALIZABLE` is reproducible step by step on two connections (40001 at the second `UPDATE` or `COMMIT`). stockroom builds order lines from a `BTreeMap` keyed by SKU, so its lock order is fixed even without the `sort_by_key` (an exercise premise had to change). `cargo test -p stockroom`: 10 unit + 34 database tests, each binary under 2 s. | 17 |
 
+## 13. The child project: shelf (added 2026-11-07)
+
+**shelf** is a small ORM built on tokio-postgres, and *Building an ORM on tokio-postgres* is a
+second book that follows its construction. Its main subject is derive macros that map rows to
+structs; around them it builds a model layer, partial updates and optimistic locking, a typed
+query builder, relations, bulk writes, streams and a schema check. It lives in `orm/`, in the
+same workspace, and is developed on the branch `shelf` until its phase S4.
+
+- **[orm/PLAN.md](orm/PLAN.md) is its source of truth**: scope, target design, chapter outline,
+  phases and decisions. [orm/CLAUDE.md](orm/CLAUDE.md) holds its working rules, which add to
+  the root CLAUDE.md.
+- **It builds on this book, and does not change it.** Its chapters link into this book's chapters
+  instead of teaching them again; its capstone reuses stockroom's schema and domain types
+  through the `stockroom` crate.
+- **The shared tooling.** `tools/book.py` takes `--book DIR`, and each registry's `[book]` table
+  holds that book's settings (playground, check database, PDF, README). This book's settings
+  are in `book/book.toml`, and nothing about its checks changed: same examples, same database,
+  same PDF stamp.

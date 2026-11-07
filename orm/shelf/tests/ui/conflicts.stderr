@@ -1,0 +1,17 @@
+error: `rename` cannot apply to a field marked `skip`, which is not read
+  --> tests/ui/conflicts.rs:11:19
+   |
+11 |     #[shelf(skip, rename = "a")]
+   |                   ^^^^^^
+
+error: `json` cannot apply to a `flatten` field, whose struct reads its own columns
+  --> tests/ui/conflicts.rs:13:22
+   |
+13 |     #[shelf(flatten, json)]
+   |                      ^^^^
+
+error: `try_from` and `json` cannot be combined: read the JSON into a type that converts itself
+  --> tests/ui/conflicts.rs:15:19
+   |
+15 |     #[shelf(json, try_from = i64)]
+   |                   ^^^^^^^^

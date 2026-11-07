@@ -1,0 +1,5 @@
+error: FromRow reads owned values, so the struct cannot borrow from the row: use `String` instead of `&str`, and `Vec<u8>` instead of `&[u8]`
+ --> tests/ui/lifetime.rs:5:16
+  |
+5 | struct Product<'a> {
+  |                ^^

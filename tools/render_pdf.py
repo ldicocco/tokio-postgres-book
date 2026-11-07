@@ -95,8 +95,9 @@ def title_of(text, fallback):
     return m.group(1) if m else fallback
 
 
-def render(src, out):
-    """Render one chapter to the PDF `out`. Raises `RuntimeError` if no PDF was produced."""
+def render(src, out, series=BOOK_TITLE):
+    """Render one chapter to the PDF `out`; `series` is the book's name, shown with the
+    chapter's. Raises `RuntimeError` if no PDF was produced."""
     src = os.path.abspath(src)
     out = os.path.abspath(out)
     os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -105,7 +106,7 @@ def render(src, out):
     title = title_of(text, os.path.splitext(os.path.basename(src))[0])
     compile_typst(
         '#import "doc.typ": *\n'
-        f"#show: doc.with(title: {typst_str(title)}, series: {typst_str(BOOK_TITLE)})\n"
+        f"#show: doc.with(title: {typst_str(title)}, series: {typst_str(series)})\n"
         + to_typst(text),
         out,
     )

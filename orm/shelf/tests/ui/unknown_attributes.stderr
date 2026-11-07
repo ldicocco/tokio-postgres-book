@@ -1,0 +1,23 @@
+error: unknown shelf attribute `table` on a struct; expected `rename_all`
+ --> tests/ui/unknown_attributes.rs:5:9
+  |
+5 | #[shelf(table = "products")]
+  |         ^^^^^
+
+error: unknown case: expected "snake_case", "camelCase", "PascalCase" or "SCREAMING_SNAKE_CASE"
+  --> tests/ui/unknown_attributes.rs:11:22
+   |
+11 | #[shelf(rename_all = "kebab-case")]
+   |                      ^^^^^^^^^^^^
+
+error: unknown shelf attribute `renamed` on a field; expected `rename`, `skip`, `flatten`, `json`, `try_from`
+  --> tests/ui/unknown_attributes.rs:13:13
+   |
+13 |     #[shelf(renamed = "sku")]
+   |             ^^^^^^^
+
+error: unknown shelf attribute `default` on a field; expected `rename`, `skip`, `flatten`, `json`, `try_from`
+  --> tests/ui/unknown_attributes.rs:15:19
+   |
+15 |     #[shelf(json, default)]
+   |                   ^^^^^^^

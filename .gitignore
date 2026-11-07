@@ -2,6 +2,7 @@
 .env
 .DS_Store
 /playground/examples/
+/orm/playground/examples/
 
 # docker/gen-certs.sh output: throwaway keys, never committed
 /docker/certs/
@@ -13,6 +14,8 @@ __pycache__/
 # only the whole book, book/tokio-postgres-book.pdf, is tracked.
 /book/[0-9][0-9]-*.pdf
 /book/[0-9][0-9]-*.pdf.source-sha256
+/orm/book/[0-9][0-9]-*.pdf
+/orm/book/[0-9][0-9]-*.pdf.source-sha256
 
 # Personal, machine-specific instructions for Claude Code
 CLAUDE.local.md
