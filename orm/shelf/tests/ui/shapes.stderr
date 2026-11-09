@@ -1,0 +1,17 @@
+error: FromRow maps a row to a struct; for a Postgres enum, derive postgres_types::FromSql instead
+ --> tests/ui/shapes.rs:5:1
+  |
+5 | enum Status {
+  | ^^^^
+
+error: FromRow needs named fields: each one is read from the column of that name
+  --> tests/ui/shapes.rs:11:8
+   |
+11 | struct Pair(i32, i32);
+   |        ^^^^
+
+error: FromRow cannot be derived for a union
+  --> tests/ui/shapes.rs:14:1
+   |
+14 | union Bits {
+   | ^^^^^

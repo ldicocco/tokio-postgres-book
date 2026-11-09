@@ -80,6 +80,13 @@ writing it turned up behaviour that is easy to get wrong. A few, each shown in t
 - In binary `COPY`, a wrong declared type of the same size loads wrong data without an error
   ([Chapter 10](book/10-copy.md)).
 
+## Coming next: building an ORM
+
+A second book is under way in [orm/](orm/README.md), on the branch `shelf`. In
+*Building an ORM on tokio-postgres* you build **shelf**, a small ORM: derive macros that map
+rows to structs, then a model layer, a typed query builder and relations, all on the driver this
+book teaches. Its plan is in [orm/PLAN.md](orm/PLAN.md).
+
 ## Contents
 
 <!-- book:contents:begin -->
@@ -109,7 +116,7 @@ writing it turned up behaviour that is easy to get wrong. A few, each shown in t
 
 ## Getting started
 
-You need Rust 1.88 or newer (edition 2024; tested with 1.99), PostgreSQL 18 with `psql` (most
+You need Rust 1.89 or newer (edition 2024, and uuid 1.29 needs 1.89; tested with 1.99), PostgreSQL 18 with `psql` (most
 examples run on 14 or newer, and the book marks what needs a newer version), and Python 3.11 or
 newer for the tooling.
 
@@ -153,6 +160,7 @@ postgres-types 0.2.14, deadpool-postgres 0.14.2, axum 0.8.9 and PostgreSQL 18.6.
 | [stockroom/](stockroom/) | The capstone service, its migrations, CLI and tests |
 | [apps/](apps/) | The five small example programs, each a library and a binary |
 | [tools/](tools/) | `book.py`, which checks, extracts and renders, plus the PDF template |
+| [orm/](orm/README.md) | The child project, in progress: shelf, a small ORM, and the book that builds it |
 | [docker/](docker/), [docker-compose.yml](docker-compose.yml) | The optional PostgreSQL 18 server with TLS |
 | [PLAN.md](PLAN.md) | Scope, chapter outline, stockroom spec, feature coverage, and what building it taught |
 | [CLAUDE.md](CLAUDE.md) | Conventions for working on the book and its code |

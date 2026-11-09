@@ -1,0 +1,15 @@
+[package]
+name = "shelf-macros"
+version = "0.1.0"
+description = "shelf's derive macros: a thin proc-macro shell around shelf-codegen"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+shelf-codegen = { workspace = true }
+syn = { workspace = true }

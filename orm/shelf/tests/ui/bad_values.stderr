@@ -1,0 +1,35 @@
+error: expected `=`
+ --> tests/ui/bad_values.rs:6:19
+  |
+6 |     #[shelf(rename)]
+  |                   ^
+
+error: expected string literal
+ --> tests/ui/bad_values.rs:8:22
+  |
+8 |     #[shelf(rename = 1)]
+  |                      ^
+
+error: a column name cannot be empty
+  --> tests/ui/bad_values.rs:10:22
+   |
+10 |     #[shelf(rename = "")]
+   |                      ^^
+
+error: `skip` takes no value
+  --> tests/ui/bad_values.rs:12:13
+   |
+12 |     #[shelf(skip = true)]
+   |             ^^^^
+
+error: duplicate `rename`
+  --> tests/ui/bad_values.rs:14:28
+   |
+14 |     #[shelf(rename = "e1", rename = "e2")]
+   |                            ^^^^^^^^^^^^^
+
+error: expected a type, as in `try_from = i64`
+  --> tests/ui/bad_values.rs:16:24
+   |
+16 |     #[shelf(try_from = "not a type")]
+   |                        ^^^^^^^^^^^^

@@ -1,0 +1,102 @@
+error[E0277]: `&str` cannot be compared with a column of type `i64`
+  --> tests/ui/query.rs:25:61
+   |
+25 |     let _ = Product::query().filter(Product::PRICE_CENTS.gt("1000"));
+   |                                                          -- ^^^^^^ expected a value of the column's type, `i64`
+   |                                                          |
+   |                                                          required by a bound introduced by this call
+   |
+   = help: the trait `Value<i64>` is not implemented for `&str`
+   = note: a condition takes the column's own type, a reference to it, or `&str` for text; shelf converts no numbers
+help: `&str` implements trait `Value<T>`
+  --> src/query/column.rs
+   |
+   | impl Value<String> for &str {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Value<String>`
+...
+   | impl Value<Option<String>> for &str {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Value<Option<String>>`
+note: required by a bound in `Column::<M, T>::gt`
+  --> src/query/column.rs
+   |
+   |     pub fn gt(self, value: impl Value<T>) -> Expr<M> {
+   |                                 ^^^^^^^^ required by this bound in `Column::<M, T>::gt`
+
+error[E0277]: `i32` cannot be compared with a column of type `i64`
+  --> tests/ui/query.rs:28:61
+   |
+28 |     let _ = Product::query().filter(Product::PRICE_CENTS.gt(cents));
+   |                                                          -- ^^^^^ expected a value of the column's type, `i64`
+   |                                                          |
+   |                                                          required by a bound introduced by this call
+   |
+   = help: the trait `Value<i64>` is not implemented for `i32`
+   = note: a condition takes the column's own type, a reference to it, or `&str` for text; shelf converts no numbers
+help: the following other types implement trait `Value<T>`
+  --> src/query/column.rs
+   |
+   | impl<T: Clone> Value<T> for &T {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `&T` implements `Value<T>`
+...
+   | impl Value<String> for &str {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^ `&str` implements `Value<String>`
+...
+   | impl Value<Option<String>> for &str {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `&str` implements `Value<Option<String>>`
+note: required by a bound in `Column::<M, T>::gt`
+  --> src/query/column.rs
+   |
+   |     pub fn gt(self, value: impl Value<T>) -> Expr<M> {
+   |                                 ^^^^^^^^ required by this bound in `Column::<M, T>::gt`
+
+error[E0277]: `Expr<Order>` is not a condition on `Product`
+  --> tests/ui/query.rs:30:37
+   |
+30 |     let _ = Product::query().filter(Order::TOTAL_CENTS.gt(1000));
+   |                              ------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^ a condition on another model's rows
+   |                              |
+   |                              required by a bound introduced by this call
+   |
+   = note: a query on `Product` filters by `Product`'s own columns: `Product::COLUMN.eq(…)`
+help: the trait `Condition<Product>` is not implemented for `Expr<Order>`
+      but trait `Condition<Order>` is implemented for it
+  --> src/query/expr.rs
+   |
+   | impl<M> Condition<M> for Expr<M> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `Order`, found `Product`
+note: required by a bound in `Query::<M>::filter`
+  --> src/query/mod.rs
+   |
+   |     pub fn filter(mut self, condition: impl Condition<M>) -> Self {
+   |                                             ^^^^^^^^^^^^ required by this bound in `Query::<M>::filter`
+
+error[E0599]: no method named `like` found for struct `Column<Product, i64>` in the current scope
+  --> tests/ui/query.rs:32:58
+   |
+32 |     let _ = Product::query().filter(Product::PRICE_CENTS.like("1%"));
+   |                                                          ^^^^
+   |
+help: there is a method `le` with a similar name
+   |
+32 -     let _ = Product::query().filter(Product::PRICE_CENTS.like("1%"));
+32 +     let _ = Product::query().filter(Product::PRICE_CENTS.le("1%"));
+   |
+
+error[E0599]: no method named `is_null` found for struct `Column<Product, String>` in the current scope
+  --> tests/ui/query.rs:33:50
+   |
+33 |     let _ = Product::query().filter(Product::SKU.is_null());
+   |                                                  ^^^^^^^ method not found in `Column<Product, String>`
+   |
+   = note: the method was found for `Column<M, Option<T>>`
+
+error[E0599]: no method named `contains` found for struct `Column<Product, Option<String>>` in the current scope
+  --> tests/ui/query.rs:34:51
+   |
+34 |     let _ = Product::query().filter(Product::NOTE.contains("x"));
+   |                                                   ^^^^^^^^ method not found in `Column<Product, Option<String>>`
+   |
+   = note: the method was found for
+           - `Column<M, Option<Vec<E>>>`
+           - `Column<M, Vec<E>>`

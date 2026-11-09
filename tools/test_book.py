@@ -128,6 +128,67 @@ class CompilerOutput(unittest.TestCase):
         out = book.map_lines("playground/examples/ch03_01.rs:2:5: error: oops", [ex])
         self.assertIn("[book/03-rows.md:41]", out)
 
+    def test_prefixed_example_names_are_mapped_too(self):
+        chapter = book.Chapter("introduction", "00-introduction.md", "t", "s", "draft")
+        block = book.Block("```", "rust", 10, ["fn main() {}"])
+        ex = book.Example("shelf_ch00_01", chapter, block)
+        out = book.map_lines("orm/playground/examples/shelf_ch00_01.rs:3:1: error", [ex])
+        self.assertIn("00-introduction.md:12]", out)
+
+
+class Sketches(unittest.TestCase):
+    """A sketch opens with its card (orm/SKETCHES.md), and the cover counts sketches apart."""
+
+    def test_the_card_is_a_block_quote_starting_with_sketch_and_a_date(self):
+        self.assertTrue(book.SKETCH_CARD.search("> **Sketch, 7 November 2026.** A plan of this"))
+        self.assertFalse(book.SKETCH_CARD.search("> **Protocol lens:** what travels"))
+        self.assertFalse(book.SKETCH_CARD.search("A sketch, 7 November 2026, in prose"))
+
+    def test_the_cover_note_counts_written_and_sketched_chapters(self):
+        def chapter(status):
+            return book.Chapter("x", "00-x.md", "t", "s", status)
+
+        self.assertEqual(book.book_contents_note([chapter("current")] * 3), "3 chapters")
+        self.assertEqual(book.book_contents_note([chapter("sketch")] * 2), "2 chapters, sketched")
+        self.assertEqual(
+            book.book_contents_note([chapter("current"), chapter("sketch"), chapter("sketch")]),
+            "1 of 3 chapters written, the others sketched",
+        )
+
+
+class Books(unittest.TestCase):
+    """`--book` selects a registry, and its [book] table rebinds the module's settings."""
+
+    def tearDown(self):
+        book.configure("book")  # leave the module pointing at the main book
+
+    def test_the_main_book_keeps_its_settings(self):
+        book.configure("book")
+        self.assertEqual(book.rel(book.BOOK_DIR), "book")
+        self.assertEqual(book.CHECK_DB, "tpbook_check")
+        self.assertEqual(book.PACKAGE, "playground")
+        self.assertEqual(book.EXAMPLE_PREFIX, "")
+        self.assertEqual(book.BANNER, "> **Async PostgreSQL in Rust**")
+
+    def test_a_project_directory_means_its_book_subdirectory(self):
+        book.configure("orm")
+        self.assertEqual(book.rel(book.BOOK_DIR), os.path.join("orm", "book"))
+        self.assertEqual(book.PACKAGE, "shelf-playground")
+        self.assertEqual(book.rel(book.EXAMPLES_DIR), os.path.join("orm", "playground", "examples"))
+        self.assertNotEqual(book.CHECK_DB, "tpbook_check")
+        self.assertTrue(book.EXAMPLE_PREFIX, "the playgrounds share target/debug/examples/")
+        self.assertEqual(book.BANNER, f"> **{book.BOOK_TITLE}**")
+        self.assertEqual(book.book_flag(), " --book orm")
+
+    def test_an_unknown_book_names_the_known_ones(self):
+        with self.assertRaises(SystemExit) as raised:
+            book.configure("no-such-book")
+        self.assertIn("orm/book", str(raised.exception))
+
+    def test_workspace_inherited_dependencies_are_not_version_checked(self):
+        book.configure("orm")  # its playground says `workspace = true` throughout
+        self.assertEqual(book.version_problems(), [])
+
 
 if __name__ == "__main__":
     unittest.main()

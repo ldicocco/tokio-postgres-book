@@ -14,7 +14,13 @@ software the book teaches from:
   pglisten, minipool).
 - `playground/`: the reader's scratch crate. Its `examples/` directory is **generated** from the
   book.
-- `tools/book.py`: extracts the examples, checks them, renders the PDFs.
+- `tools/book.py`: extracts the examples, checks them, renders the PDFs. `--book orm` points it
+  at the child project's book.
+- `orm/`: the **child project**, shelf: a small ORM on tokio-postgres (derive macros first,
+  then a model layer, a query builder and relations), with a second book that follows its build,
+  and its capstone `orm/stockroom-shelf`, stockroom's API with part of its data layer on shelf.
+  It has its own [orm/PLAN.md](orm/PLAN.md) and [orm/CLAUDE.md](orm/CLAUDE.md), which add to
+  this file. Work on it happens on the branch `shelf`.
 
 **Audience:** developers with average Rust, basic Tokio and basic SQL. The book ends with them
 building and operating a Postgres-backed axum service.
@@ -31,7 +37,8 @@ the matching chapter there. For example, `10-async.md` shows the section rhythm,
 
 ## Status
 
-Track it in `book/book.toml`: each chapter is `planned`, `draft` or `current`.
+Track it in `book/book.toml`: each chapter is `planned`, `draft` or `current` (the shelf book
+also uses `sketch`, a chapter's plan in its place; orm/SKETCHES.md).
 `python3 tools/book.py list` prints the table.
 
 - **Phase 0 (scaffold) is done** (2026-11-06): the workspace, the playground, `tools/book.py`
@@ -58,6 +65,16 @@ Track it in `book/book.toml`: each chapter is `planned`, `draft` or `current`.
   exercise hints made uniform (17 Part I and II exercises lacked a *Hint*), cross-references
   checked, and the §5.3 coverage audit closed with one new example in §12.4. Appendix F
   (crates built on tokio-postgres) was researched from crates.io, docs.rs and the crates' source.
+- **The child project, shelf (`orm/`), finished phases S0 (scaffold) and S1a (the mapping)** on
+  2026-11-07, on the branch `shelf`: `#[derive(FromRow)]` complete, `book.py --book`, and a
+  sketch of every chapter, in `orm/book/shelf-book.pdf`. Its Chapters 0–4 were written on
+  2026-11-09, and phases S1b (the model: `Executor`, `Table`, `Insert`, `Patch`), S1c (the
+  query builder, relations, bulk writes, streams, `verify`) and S2 (the capstone,
+  `orm/stockroom-shelf`, which reuses the `stockroom` crate and never changes it) were done the
+  same day, and so were S3a (Part I: Chapter 5 written, Chapters 0–5 `current`), S3b (Part
+  II: Chapters 6–9) and S3c (Part III: Chapters 10–14 and the appendix): every chapter of the
+  shelf book is `current`, 141 runnable examples. S4 (polish, and merging `shelf` into `main`) is
+  next. orm/PLAN.md §9 lists its phases, and §13 is the checklist for the next one.
 
 ## Commands
 
@@ -70,6 +87,8 @@ cargo fmt --all -- --check
 python3 tools/book.py check                              # registry, versions, mirrors, links, excerpts,
                                                          # then build + clippy + rustfmt + RUN every
                                                          # ```rust block against a fresh tpbook_check
+python3 tools/book.py --book orm check                   # the same for the shelf book (orm/book/),
+                                                         # against a fresh tpbook_shelf_check
 python3 -m unittest discover tools                       # the tool's own tests
 
 # Narrower
@@ -84,6 +103,7 @@ python3 tools/book.py list                               # chapter status, examp
 python3 tools/book.py index                              # regenerate README.md's contents table
 python3 tools/book.py book                               # the book PDF: the only PDF in the repository
 python3 tools/book.py pdf 3                              # one chapter, locally, into target/book/ (never committed)
+# Every book.py command takes --book orm for the shelf book (orm/CLAUDE.md lists them).
 docker/gen-certs.sh && docker compose up -d --wait       # optional TLS server (Chapter 12)
 
 # stockroom (reads .env: STOCKROOM_DATABASE_URL; every flag also has an env var, see --help)
@@ -121,10 +141,14 @@ cargo run -p minipool --release -- --tasks 64 --pool-size 8 [--delay-ms 2]   # C
 - Databases:
   - `tpbook` is the scratch database for manual experiments.
   - `tpbook_check` is **dropped and recreated** by every `book.py check`.
+  - `tpbook_shelf_check` is **dropped and recreated** by every `book.py --book orm check`, and
+    `shelf_test` holds shelf's integration tests, one schema `t_<uuidv7>` per test
+    (orm/CLAUDE.md).
   - `stockroom` is for development.
   - `stockroom_template_<checksum>` (migrated once, rebuilt when the migrations change) and
     the `stockroom_test_<uuid>` databases belong to the stockroom tests
     (`stockroom/tests/common/mod.rs`). Each test clones the template and drops its clone.
+    stockroom-shelf's tests use the same harness, and so the same databases.
   - Do not touch any other database on the server.
 - The optional `docker compose up -d --wait` runs Postgres 18 **with TLS on `:5434`**. It
   accepts TLS connections only (`hostssl`), and its certificate chains to
