@@ -92,7 +92,7 @@ decisions: who writes the SQL, and when a mistake in the mapping is caught.
 | sqlx | its own driver | SQL; `#[derive(FromRow)]` maps rows | At compile time with `query!` and `query_as!` (against a live database, or query data saved from one); at run time with `FromRow`, on every row |
 | postgres-from-row | tokio-postgres | SQL; `#[derive(FromRow)]` maps rows | At run time, on every row |
 | Cornucopia | tokio-postgres | SQL in `.sql` files, from which Rust functions are generated | When the code is generated, against a live database |
-| **shelf** | tokio-postgres | SQL where it matters; derives write the everyday statements | At run time, once per statement, before the first row is read |
+| **shelf** | tokio-postgres | SQL where it matters; derives write the everyday statements | At run time, once per statement, before the first row is read; and against the table at startup, with `verify` |
 
 A newer entrant, **toasty**, is the Tokio project's ORM: models are structs with
 `#[derive(Model)]`, behind one API for SQL databases and DynamoDB, and its PostgreSQL driver
@@ -117,12 +117,15 @@ What shelf decides differently, and why it is worth building rather than adoptin
 
 ## 0.3 The finished API in ten lines
 
-By the end of Part III, a model and its everyday SQL look like this. It is the target design,
-and Chapters 6–13 build it, so here it is an illustration, not a program. §0.7 runs the part
-that exists today, and this section becomes a runnable program when the rest is built.
+By the end of Part III, a model and its everyday SQL look like this. Chapters 6–13 build each
+piece, and this program runs them all, against temporary tables of its own. The ten lines that
+matter are the ones in `main` after the setup, each with a comment saying what it sends:
 
-~~~rust
-// shelf (target design: built in Chapters 6–13)
+```rust
+use jiff::Timestamp;
+use shelf::{FromRow, Insert, Table};
+use uuid::Uuid;
+
 #[derive(Debug, FromRow, Table)]
 #[shelf(table = "products")]
 struct Product {
@@ -139,33 +142,126 @@ struct Product {
 
 #[derive(Insert)]
 #[shelf(model = Product)]
-struct NewProduct { sku: String, price_cents: i64, tags: Vec<String> }
+struct NewProduct {
+    sku: String,
+    price_cents: i64,
+    tags: Vec<String>,
+}
 
-let product = NewProduct { … }.insert(&db).await?;          // INSERT … RETURNING
-let product = Product::find(&db, &id).await?;                 // Err(Error::NotFound)
-let page = Product::query()
-    .filter(Product::PRICE_CENTS.gt(1_000).and(Product::TAGS.contains("sale")))
-    .order_by(Product::SKU.asc())
-    .limit(20)
-    .all(&db)
+#[derive(Debug, FromRow, Table)]
+#[shelf(table = "orders", has_many(Line, key = order_id, as = lines))]
+struct Order {
+    #[shelf(primary_key)]
+    id: i64,
+}
+
+#[derive(Debug, FromRow, Table)]
+#[shelf(table = "lines")]
+struct Line {
+    #[shelf(primary_key, generated)]
+    id: i64,
+    order_id: i64,
+    sku: String,
+}
+
+fn new_product(sku: &str, price_cents: i64, tags: &[&str]) -> NewProduct {
+    NewProduct {
+        sku: sku.into(),
+        price_cents,
+        tags: tags.iter().map(|t| t.to_string()).collect(),
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), shelf::Error> {
+    let db = shelf_playground::connect().await?;
+    db.batch_execute(
+        "CREATE TEMP TABLE products (
+             id uuid PRIMARY KEY DEFAULT uuidv7(),
+             sku text NOT NULL UNIQUE,
+             price_cents bigint NOT NULL,
+             tags text[] NOT NULL DEFAULT '{}',
+             version integer NOT NULL DEFAULT 1,
+             created_at timestamptz NOT NULL DEFAULT now()
+         );
+         CREATE TEMP TABLE orders (id bigint PRIMARY KEY);
+         CREATE TEMP TABLE lines (
+             id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+             order_id bigint NOT NULL REFERENCES orders,
+             sku text NOT NULL
+         );
+         INSERT INTO orders VALUES (1), (2);
+         INSERT INTO lines (order_id, sku) VALUES (1, 'MUG-01'), (1, 'TEE-02'), (2, 'MUG-01');",
+    )
     .await?;
-let lines = Order::load_lines(&db, &orders).await?;           // one query: = ANY($1)
-NewProduct::insert_many(&db, &batch).await?;                  // unnest; copy_in for binary COPY
-shelf::verify::<Product>(&db).await?;                         // the struct against the table
-~~~
+    let new_mug = new_product("MUG-01", 1299, &["kitchen", "sale"]);
+    let batch = [
+        new_product("TEE-02", 2499, &["sale"]),
+        new_product("VASE-03", 899, &["sale"]),
+        new_product("LAMP-04", 4999, &["home"]),
+    ];
 
-Each line is one statement, and one round trip once the statement is cached:
+    let mug = new_mug.insert(&db).await?; // INSERT … RETURNING
+    let mug = Product::find(&db, &mug.id).await?; // SELECT … WHERE "id" = $1, or Error::NotFound
+    NewProduct::copy_in(&db, &batch).await?; // the whole batch in one binary COPY
+    let query = Product::query()
+        .filter(
+            Product::PRICE_CENTS
+                .gt(1_000)
+                .and(Product::TAGS.contains("sale")),
+        )
+        .order_by(Product::SKU.asc())
+        .limit(20);
+    let page = query.all(&db).await?; // one SELECT, three parameters
+    let orders = Order::all(&db).await?; // SELECT … ORDER BY "id"
+    let lines = Order::load_lines(&db, &orders).await?; // one query for every order: = ANY($1)
+    shelf::verify::<Product>(&db).await?; // the struct against the table's columns
 
-- `insert` sends an `INSERT … RETURNING` with the model's columns, and the database fills in
-  `id` (with `uuidv7()`) and `created_at` (Chapter 8).
-- `find` sends `SELECT <every column> FROM products WHERE id = $1` and turns "no row" into an
-  error you can match (Chapter 6).
-- The query builder renders one `SELECT` with `$1`, `$2` and `$3` as parameters. Its columns
-  are typed, so comparing `PRICE_CENTS` with a string does not compile (Chapter 10).
+    println!("{}", query.sql());
+    let skus: Vec<&str> = page.iter().map(|p| p.sku.as_str()).collect();
+    let per_order: Vec<usize> = lines.iter().map(Vec::len).collect();
+    println!("page: {skus:?}; lines per order: {per_order:?}");
+    assert_eq!((mug.sku.as_str(), mug.version), ("MUG-01", 1));
+    assert!(mug.created_at <= Timestamp::now());
+    assert_eq!(skus, ["MUG-01", "TEE-02"]);
+    assert_eq!(per_order, [2, 1]);
+    assert_eq!(lines[0][1].sku, "TEE-02");
+    assert!(
+        lines
+            .iter()
+            .flatten()
+            .all(|line| line.id > 0 && line.order_id > 0)
+    );
+    Ok(())
+}
+```
+
+```text
+SELECT "id", "sku", "price_cents", "tags", "version", "created_at" FROM "products" WHERE "price_cents" > $1 AND "tags" @> $2 ORDER BY "sku" LIMIT $3
+page: ["MUG-01", "TEE-02"]; lines per order: [2, 1]
+```
+
+Each call says in its comment what it sends:
+
+- `insert` sends one `INSERT … RETURNING` with the model's columns, and the database fills in
+  `id` (with `uuidv7()`, PG 18+), `version` and `created_at` (Chapter 8).
+- `find` sends `SELECT <every column> FROM products WHERE id = $1`, and turns "no row" into an
+  error you can match, `Error::NotFound` (Chapter 6).
+- `copy_in` writes the whole batch with one binary `COPY`. Its sibling `insert_many` writes a
+  batch with one `INSERT … SELECT … FROM unnest(…)`, for structs without array columns such as
+  `tags` (Chapter 12).
+- The query builder renders one `SELECT` with `$1`, `$2` and `$3` as parameters, printed
+  above. Its columns are typed, so comparing `PRICE_CENTS` with a string does not compile
+  (Chapter 10).
 - `load_lines` reads the lines of every order in the slice with one query, not one per order
-  (Chapter 11), and `insert_many` writes the whole batch with one statement (Chapter 12).
+  (Chapter 11).
 - `verify` compares the struct with the table, so drift is caught at startup instead of at the
   first request that reads the column (Chapter 13).
+
+On a plain `Client`, as here, shelf prepares each statement before it runs it: that is the round
+trip `query` makes with SQL text anyway, and the moment shelf checks the struct against the
+statement's columns (Chapter 5). On a deadpool connection, the statement comes from the
+connection's cache after the first call (Chapter 7).
 
 ## 0.4 Three crates, and why
 
@@ -193,8 +289,10 @@ library:
 | [`shelf-macros`](../shelf-macros/src/lib.rs) | proc-macro | A shell: per derive, three lines that parse the input, call shelf-codegen, and return the result or the error |
 | [`shelf-codegen`](../shelf-codegen/src/lib.rs) | library | Everything the derives generate, as functions from a parsed struct to tokens. Its own tests, and this book's examples, call them directly |
 
-A fourth crate, `orm/playground`, holds this book's examples. Chapter 3 builds the split from
-the inside, and explains the one type that makes it possible, `proc_macro2::TokenStream`.
+Two more crates sit beside them: `orm/playground`, which holds this book's examples, and
+`orm/stockroom-shelf`, Chapter 14's capstone, which serves part of stockroom's API on shelf.
+Chapter 3 builds the split from the inside, and explains the one type that makes it possible,
+`proc_macro2::TokenStream`.
 
 ## 0.5 How this book follows the build
 
@@ -274,7 +372,8 @@ Its library re-exports the main book's helpers, so an example connects with
 Chapter 3 prints it.
 
 Each runnable block in a chapter becomes one file in `orm/playground/examples/`, named after
-the chapter and its position: the first program in §0.7 is `shelf_ch00_01`. To run one:
+the chapter and its position: the first program in this chapter, §0.3's, is `shelf_ch00_01`.
+To run one:
 
 ```bash
 python3 tools/book.py --book orm extract                 # write orm/playground/examples/ from the book

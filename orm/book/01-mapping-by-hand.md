@@ -112,7 +112,7 @@ async fn main() -> Result<(), tokio_postgres::Error> {
 The body is the same as stockroom's `try_from`. What a trait of shelf's own buys is room to
 grow, and three things `TryFrom<&Row>` cannot give:
 
-- **Associated items.** Chapter 5 adds an associated type and a second method to `FromRow`, so
+- **Associated items.** Chapter 5 adds an associated type and two methods to `FromRow`, so
   that a statement's columns are found once instead of on every row. `TryFrom` is the standard
   library's trait, and nobody can add to it.
 - **A short bound.** A generic helper over `TryFrom<&Row>` must say "for a row borrowed for any

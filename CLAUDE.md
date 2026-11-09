@@ -71,8 +71,8 @@ also uses `sketch`, a chapter's plan in its place; orm/SKETCHES.md).
   2026-11-09, and phases S1b (the model: `Executor`, `Table`, `Insert`, `Patch`), S1c (the
   query builder, relations, bulk writes, streams, `verify`) and S2 (the capstone,
   `orm/stockroom-shelf`, which reuses the `stockroom` crate and never changes it) were done the
-  same day; S3a (Chapter 5 and Chapter 0's §0.3) is next. orm/PLAN.md §9 lists its phases, and
-  §13 is the checklist for the next one.
+  same day, and so was S3a (Part I: Chapter 5 written, Chapters 0–5 `current`); S3b (Chapters
+  6–9) is next. orm/PLAN.md §9 lists its phases, and §13 is the checklist for the next one.
 
 ## Commands
 

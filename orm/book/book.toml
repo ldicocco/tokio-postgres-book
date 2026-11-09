@@ -28,7 +28,7 @@ id = "introduction"
 path = "00-introduction.md"
 title = "Chapter 0 — Introduction and setup"
 summary = "What an ORM does and what shelf will be, the three crates and why, the finished API in ten lines, and the setup"
-status = "draft"
+status = "current"
 
 [[chapter]]
 id = "mapping-by-hand"
@@ -63,7 +63,7 @@ id = "column-indices"
 path = "05-column-indices.md"
 title = "Chapter 5 — Checking a statement once, not every row"
 summary = "Resolving columns and checking their types once per statement, measured against lookups by name"
-status = "sketch"
+status = "current"
 
 # ── Part II — The model ──────────────────────────────────────────────────────────────────
 

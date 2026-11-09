@@ -2,7 +2,7 @@
 
 > **Building an ORM on tokio-postgres** · Previous: [Chapter 6 — Tables: the model derive](06-tables.md) · Next: [Chapter 8 — Writing rows: insert, update, delete, upsert](08-writing.md)
 
-> **Sketch, 9 November 2026 (revised after S1c).** A plan of this chapter, not its text; it will be replaced by
+> **Sketch, 9 November 2026 (revised after S3a).** A plan of this chapter, not its text; it will be replaced by
 > the chapter. Part II, second chapter. Builds on Chapter 6, and on main book
 > [Chapter 4](../../book/04-prepared-statements.md) (round trips),
 > [Chapter 6](../../book/06-errors.md) (`DbError`, `SqlState`),
@@ -129,9 +129,10 @@ Plan:
    Chapter 15.
 
 > **Open questions.** Settled in S1b: the `Send` futures work in handlers, spawned tasks and
-> the retry helper (§12 #28); a plain `Client` prepares every time (§12 #29, §10). Still open:
-> where `resolve`'s result lives when statements are cached (Chapter 5's open question;
-> `resolve` runs per call today).
+> the retry helper (§12 #28); a plain `Client` prepares every time (§12 #29, §10). Settled in
+> S3a: `resolve`'s result is not cached beside a cached statement; it runs on every call, at
+> 262–268 ns for twelve fields against a 46–47 µs round trip (Chapter 5, §5.6; §12 #59, §10).
+> The exercise's statement cache for a plain `Client` may keep a `Columns` beside it.
 
 ---
 

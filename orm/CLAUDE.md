@@ -22,10 +22,8 @@ writing output from memory. This file lists only what differs or is added.
 - **Every chapter is sketched** (2026-11-07): `orm/book/NN-*.md` holds each chapter's sketch
   (status `sketch`), in the format of [SKETCHES.md](SKETCHES.md), and the book PDF
   (`orm/book/shelf-book.pdf`) contains them.
-- **Chapters 0–4 are written** (2026-11-09), ahead of S1b at the user's request: 1–4 are
-  `current`, and 0 is a `draft` until its §0.3 (the API in ten lines) runs, which S1c now allows
-  (PLAN.md §10). The other chapters are still sketches; those of 6–13 describe the design as
-  built.
+- **Chapters 0–4 are written** (2026-11-09), ahead of S1b at the user's request. The other
+  chapters are still sketches; those of 6–13 describe the design as built.
 - **Phase S1b (the model) is done** (2026-11-09): the `Executor`, `#[derive(Table)]`,
   `#[derive(Insert)]` (with `Upsert`), `#[derive(Patch)]`, `version` and `updated_at`. PLAN.md
   §4.0b says what exists and where, §10 the decisions, §12 #28–#33 the probes and measurements.
@@ -36,9 +34,12 @@ writing output from memory. This file lists only what differs or is added.
   API with stores, products and orders on shelf and the rest through stockroom's router; one
   test suite runs against both routers. PLAN.md §4.0d says what exists and where, §10 the
   decisions, §12 #47–#56 the probes and measurements.
-- **Next: phase S3a, Chapter 5 and Chapter 0's §0.3.** PLAN.md §13 is its checklist; a new
-  session starts there, after checking that no other session works in the repository (two did
-  on 2026-11-09, and one overwrote the other's file).
+- **Phase S3a (Part I) is done** (2026-11-09): Chapter 5 written, Chapter 0's §0.3 a runnable
+  program, Chapters 0–5 `current`. PLAN.md §10 has its decisions (no `Columns` cache; duplicate
+  column names), §12 #57–#62 its probes and measurements.
+- **Next: phase S3b, Chapters 6–9.** PLAN.md §13 is its checklist; a new session starts there,
+  after checking that no other session works in the repository (two did on 2026-11-09, and one
+  overwrote the other's file).
 
 ## Commands
 
@@ -154,7 +155,7 @@ The root list applies, plus:
   `#[path]`), so their databases are stockroom's: `stockroom_test_<uuid>`, cloned from
   `stockroom_template_<checksum>` and dropped at the end.
 
-## Verified facts (S0, S1a, Chapters 0–4, S1b, S1c, S2)
+## Verified facts (S0, S1a, Chapters 0–4, S1b, S1c, S2, S3a)
 
 - syn 3.0.9's derive types have the same shape as syn 2's (`DeriveInput`, `Data`, `Fields`),
   except `Field`: `mutability` became `modifiers: FieldModifiers`, and `default` is new.
@@ -245,3 +246,10 @@ The root list applies, plus:
   host; build a new `Config` to point a connection elsewhere (§12 #56).
 - **deadpool's `StatementCache::remove(sql, &[])`** returns the statement if the connection
   prepared it: the way a test tells which SQL a route sent (§12 #53).
+- **Every row of a statement shares its column list** (`std::ptr::eq(row.columns(),
+  statement.columns())`, 0.7.18). One `resolve` of 12 fields costs 262–268 ns in release
+  against a 46–47 µs localhost round trip, so `Columns` is not cached (§12 #57, #59). Only
+  `Send` on `FromRow::Columns` is required by shelf's code (§12 #60).
+- **A row with a duplicated column name**: shelf and `Row::try_get` read the first, sqlx 0.9 the
+  last; sqlx checks a type only for non-NULL values (§12 #61). tokio-postgres's per-row
+  `accepts` turns a row read with another statement's positions into an error (§12 #62).

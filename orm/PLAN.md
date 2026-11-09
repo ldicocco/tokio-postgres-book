@@ -25,9 +25,10 @@ design as built. **Chapters 0–4 were written on 2026-11-09**, ahead of S1b at 
 that S1c is built). **Phase S2 (the capstone) done on 2026-11-09** (§4.0d):
 `orm/stockroom-shelf` serves stockroom's API with stores, products and orders on shelf, its
 ported routes answering as stockroom's do (one test suite run against both routers), each step
-probed or measured first (§12 #47–#56). The book PDF, `orm/book/shelf-book.pdf`, shows the
-written chapters and the sketches. The next phase is S3a: Chapter 5 and Chapter 0's §0.3 (§9,
-and §13 step by step).
+probed or measured first (§12 #47–#56). **Phase S3a (Part I) done on 2026-11-09**: Chapter 5
+written (its open questions settled in §10 and §12 #57–#62), Chapter 0's §0.3 a runnable
+program, and Chapters 0–5 `current`. The book PDF, `orm/book/shelf-book.pdf`, shows the written
+chapters and the sketches. The next phase is S3b: Chapters 6–9 (§9, and §13 step by step).
 
 ---
 
@@ -225,8 +226,10 @@ The field attributes:
 
 ### 4.4 The API in use (illustration)
 
-All of it is built (S1b, S1c). Two details differ from the first design: `load_lines` returns a
-`Vec` per order, aligned with the slice, and binary COPY is `NewProduct::copy_in`.
+All of it is built (S1b, S1c), and Chapter 0's §0.3 runs it. Three details differ from the
+first design: `load_lines` returns a `Vec` per order, aligned with the slice; binary COPY is
+`NewProduct::copy_in`; and `insert_many` refuses an array column such as `tags` (§12 #37), so
+§0.3 writes its batch with `copy_in`.
 
 ~~~rust
 // shelf
@@ -257,7 +260,7 @@ let page = Product::query()
     .all(&db)
     .await?;
 let lines = Order::load_lines(&db, &orders).await?;           // one query: = ANY($1)
-NewProduct::insert_many(&db, &batch).await?;                  // unnest
+NewProduct::insert_many(&db, &batch).await?;                  // unnest: Error::Unsupported here (tags)
 NewProduct::copy_in(&db, &batch).await?;                      // binary COPY
 shelf::verify::<Product>(&db).await?;                         // the struct against the table
 ~~~
@@ -443,17 +446,26 @@ are registered in [book/book.toml](book/book.toml).
   try_from)]`).
 - In shelf: `shelf-codegen/src/attrs.rs`.
 
-**Chapter 5 — Checking a statement once, not every row**
+**Chapter 5 — Checking a statement once, not every row** (written 2026-11-09)
 
-- 5.1 What mapping by name costs on every row (the measurement from §1.2, scaled up).
-- 5.2 A statement knows its columns: resolving each field to an index once.
-- 5.3 Types checked once: `FromSql::accepts(column.type_())` per column, not per row. A mismatch
-  becomes `Error::Mapping`, which names the model, the field, the column and both types, before
-  the first row is read.
-- 5.4 What the derive generates for this, and how `from_row` stays available for a single row.
-- 5.5 Measured: by name versus resolved, on 100,000 rows of 12 columns.
-- Side by side: reading 100,000 rows.
-- In shelf: `shelf/src/row.rs`, `shelf-codegen/src/from_row.rs`.
+- 5.1 The answer belongs to the statement: every row shares its statement's column list
+  (§12 #57), so positions and types are per statement, decoding per row.
+- 5.2 A statement knows its columns: `prepare`, `columns()` before any row, the
+  *RowDescription*; the two-step trait as a stage program (`Columns`, `resolve`,
+  `from_row_at`, a `fetch_all`), exact names only.
+- 5.3 Types checked once: `accepts` per column, shelf's `column` and `check`; an `INSERT …
+  RETURNING` that does not fit never runs; what is left per row (`Null`, `Decode`).
+- 5.4 What the derive generates: the stage and the expansion side by side, a resolved
+  `Columns` printed (`(2, (1, 0), ())`), the trait's bounds (§12 #60), `from_rows` and its
+  empty-slice pitfall.
+- 5.5 Measured: `bench_mapping`'s table, and a debug-build program (§12 #58, #59).
+- 5.6 Where shelf resolves: `fetch_*`, the model methods, streams, `verify`; once per call, not
+  once per connection (§10).
+- Side by side: reading 100,000 rows (by hand with positions found once, shelf, sqlx's map per
+  statement, §12 #61).
+- In shelf: `get` and `decode_error` in `shelf/src/row.rs`.
+- Exercises: one statement and two executions; two columns of one name (§12 #61); positions from
+  another statement (§12 #62).
 
 ### Part II — The model
 
@@ -628,7 +640,7 @@ as in the main book, so that every excerpt quotes real code.
 | **S1b. shelf: the model** (done 2026-11-09) | `Table`, `Insert` and `Patch`; `Executor` with the `deadpool` feature; `shelf::Error`; CRUD and upsert; `version` and `updated_at`; the `Patch` design chosen by measurement | The gates pass; the statement-strategy and `Patch` measurements are in §12 |
 | **S1c. shelf: queries and relations** (done 2026-11-09) | The query builder, relations, `insert_many` and COPY, streams, and `verify` | The gates pass; the N+1 and bulk tables are in §12; the query builder's compile errors have UI tests |
 | **S2. stockroom-shelf** (done 2026-11-09) | The capstone app and its tests | The gates pass; the ported routes give the same responses as stockroom's |
-| **S3a. Part I** (Chapters 0–4 written 2026-11-09, ahead of S1b) | Chapters 0–5 | `book.py --book orm check` passes, including excerpts and links; the chapters are `current` |
+| **S3a. Part I** (done 2026-11-09; Chapters 0–4 written ahead of S1b) | Chapters 0–5 | `book.py --book orm check` passes, including excerpts and links; the chapters are `current` |
 | **S3b. Part II** | Chapters 6–9 | The same |
 | **S3c. Part III** | Chapters 10–14 and the appendix | The same |
 | **S4. Polish and merge** | The book PDF, a read-through, a coverage audit against §5, and merging `shelf` into `main` | `book.py --book orm list` shows every chapter `current` and the PDF fresh |
@@ -666,7 +678,10 @@ as in the main book, so that every excerpt quotes real code.
 | What `Table` refuses (S1b) | a model without `table` or without a `primary_key`; `flatten` fields (a flattened struct's columns are not known at macro time); type parameters (the SQL names one table) | `FromRow` exposing its column list as a const, which a generic `flatten` could not have |
 | Writes (S1b, step 4) | `Insert` on a `New…` struct (`model = Product`): `INSERT … RETURNING` the model's columns, joined at compile time; the struct may borrow but not have type parameters, and `Insert` reports every key's error, being the only shelf derive on its struct. `update(&self)` writes every column that is neither key nor `generated` and returns the row (`UPDATE … RETURNING`; with nothing to write, it reads the row); `delete`, `delete_by_key`; zero rows is `NotFound`. An upsert's target is the fields marked `#[shelf(conflict)]`, and a separate `Upsert` trait exists only when there are some (`ON CONFLICT (…) DO UPDATE SET` every other column; with none, the key is set to itself so the row is still returned). `json` fields are written through `__private::Json`, a `#[repr(transparent)]` view of the field (`Json::from_ref`), so that parameters still borrow from the struct. `Table` carries `#[diagnostic::on_unimplemented]` for a `model` that is not one. Generated code spells primitives `::core::primitive::str` | an upsert target given as an argument; `DO NOTHING` (no row returned); boxed, owned parameters |
 | The `Patch` design (S1b, step 5) | (c), `col = CASE WHEN $f THEN $v ELSE col END`: one statement for every patch, NULLs included, domains typed as their base type (§12 #30, #33). Its statement numbers the key's parameters after its own, and the key's length is the model's, so it is built once, at first use, in a `LazyLock<String>` by a function in shelf from the model's constants: the case where `LazyLock` is the right tool | (a), a statement per shape; (b), `coalesce`, which cannot set NULL; `const fn`s that write `$n` numbers |
-| Chapter 0's §0.3 (the API in ten lines) | the target design as a `~~~rust` illustration, marked as such; it becomes a runnable program after S1c, and Chapter 0 stays `draft` until then | showing only the mapping |
+| Chapter 0's §0.3 (the API in ten lines) | a runnable program since S3a (2026-11-09), against temporary tables: `insert`, `find`, `copy_in`, the query builder (its SQL printed), `load_lines`, `verify`. The batch goes through `copy_in`, because `insert_many` refuses the array column `tags` (§12 #37); the bullets say so | the illustration it was until S1c; dropping `tags` to show `insert_many` |
+| Caching `Columns` per statement (Chapter 5's open question) | no: `resolve` runs on every call, prepared or cached. One `resolve` of 12 fields costs 262–268 ns, a localhost round trip 46–47 µs (§12 #59); a cache would need a map per connection keyed by statement and type, and staleness rules | a `Columns` cache beside deadpool's statement cache; `fetch_*` taking a `Statement` (Chapter 5's Exercise 1 does it by hand) |
+| `FromRow::Columns`' bounds | `Send + Sync + 'static`, kept: only `Send` is required by shelf's code (§12 #60); the others hold for any tuple of positions and promise what a cache would need | `Send` alone |
+| Two result columns with one name | the first is read, as `Row::try_get` does; not refused (a join's two `id`s are legal, and the struct may read neither). A precise check (only names the struct reads) would walk the whole list per field; Chapter 5's Exercise 2 writes a coarse one | refusing every duplicated name; refusing a duplicated name the struct reads |
 | The query builder's values (S1c) | a trait of shelf's own, `Value<T>`: the column's type, a reference to it, `&str` for text, a plain value for a nullable column; no numeric conversions (§12 #34) | `impl Into<T>` (a literal falls back to `i32`, so `3_000_000_000` stops compiling); widening impls (the same) |
 | Column constants (S1c) | inherent constants on the model, the field's name in capitals, as visible as the field; they shadow a `Table` constant of the same name, which shelf always names in full (§12 #35) | a generated module (diesel's `products::sku`); an enum of columns (SeaORM's `Column::Sku`) |
 | A query's values (S1c) | owned, `Box<dyn ToSql + Sync + Send>` (one allocation each), so a query is built in one function and run in another, across an `.await` and `tokio::spawn`; `LIMIT` and `OFFSET` are parameters, so a page size is not a new statement | borrowed values with a lifetime on `Query` |
@@ -785,37 +800,55 @@ code, and tagged with the chapter where it belongs.
 | 54 | **Statements and round trips per ported function** (`cargo run -p stockroom-shelf --release --example line_for_line`: one pooled connection through a counter of the client's Parse and Execute messages, then lagproxy at 5 ms each way; a round trip, a cached `SELECT 1`, 14.4 ms; median of 5 warm calls, three runs; release build, rustc 1.99.1, Apple Silicon, PG 18.6). `stores::list`, `stores::create`, `products::page` (first page; with a cursor and a tag), `by_sku` and `products::create`: 1 statement, 1 round trip on both sides (13.8–15.7 ms). **`products::update`**: stockroom 1 statement, 1 round trip (14.0–15.8 ms); shelf 2 statements (the read by SKU, the patch), 2 round trips (29.1–30.5 ms). **`orders::place`, 3 lines, in `in_transaction`**: stockroom prepares 7 statements on an empty cache, and 2 more on every call (the two `INSERT`s sent as strings), runs 9, 9.1–9.5 round trips (132.7–134.9 ms); shelf prepares 6 (`insert_many` prepares its single-row `INSERT` for the column types, and never runs it), none warm, runs 7, 5.9–6.1 round trips (85.0–90.3 ms): its inserts are cached and it builds the response from their `RETURNING` rows instead of reading the order back. **`orders::get`, 3 lines**: stockroom 2 statements, pipelined, 1 round trip (13.2–14.8 ms); shelf 4 statements (the order and its lines pipelined, then the store and the products), 2 round trips (28.4–29.9 ms): no joins. BEGIN and COMMIT are simple queries, in the round trips and not in the counts. | 14 |
 | 55 | **Lines of Rust, stockroom's repository against the port's** (blank lines and comments not counted, attributes counted; a scratchpad script per item). Stores: 57 against 34 (`TryFrom<&Row>` 12 lines gone, three derive lines added; `create` 13 → 4). Products, the ported items: 150 against 87 (`TryFrom<&Row>` 16 gone; `by_sku` 13 → 6, `create` 23 → 4, `update` 45 → 16, `page` 18 → 16). Orders, `place` and `get`: 148 against 175: the two table models and their `Insert`s (44 lines) and the assembly of the response from them (`view`, 33) are new, where stockroom's joins put the response's columns in one row; `get` is 46 lines against 10 plus `view`, `place` 96 against 86. Hand-written SQL in the ported functions: 15 statements against 1 (the reservation). | 14 |
 | 56 | **`Config::host` and `Config::port` add to a config's lists** (tokio-postgres 0.7.18, multi-host configs): setting them on a copy of a config leaves its own host first, so the measurement's first pool connected around its proxies, and every count read 0. A new `Config` with the same user, password, database and options fixes it. (A tooling finding, met while building #54.) | — |
+| 57 | **Every row of a statement shares the statement's column list** (tokio-postgres 0.7.18: `Row` holds its `Statement`, and `Row::columns()` returns `self.statement.columns()`): `std::ptr::eq(row.columns(), statement.columns())` holds for every row of a prepared statement, and the rows of `query(&str)` share one list too. A `Column` keeps the name, the table OID and column number (`None` for 0), the type modifier and the `Type` from the *RowDescription*; an expression column has neither table nor number. (Chapter 5's first two programs.) | 5 |
+| 58 | **Chapter 5's measurements, again** (written 2026-11-09). `bench_mapping` (release, median of 5, three runs, rustc 1.99.1, Apple Silicon, PG 18.6 on localhost, with other sessions' builds on the machine): by name 40.6–41.7 ms, by index 13.2–13.5 ms, `from_rows` 14.1–14.4 ms (4–8% over by index), `from_row` per row 41.3–42.7 ms; the ratios match #13. In a debug build (the book's examples), `from_rows` 134.5–135.6 ms against `from_row` per row 225.6–227.2 ms, 1.7× in three runs: a relative assertion (`once < per_row`) has a wide margin. | 5 |
+| 59 | **One `resolve` costs well under a microsecond; a round trip costs tens** (12 fields, 10,000 calls; a prepared `SELECT 1`, 100 to 1,000 calls; localhost): release 262–268 ns against 46–47 µs (preparing the 12-column `SELECT`: 56 µs); debug 815–874 ns against 61–116 µs. So resolving is about 0.6% of the cheapest call, and shelf does not cache `Columns` per statement (§10). | 5 |
+| 60 | **Only `Send` on `FromRow::Columns` is load-bearing** (probe, 2026-11-09: each bound removed in turn, `cargo check -p shelf --all-targets`). Without `Send`, `fetch_all`, `fetch_one`, `fetch_opt`, `Table::find` and `all` and `insert_many` stop compiling: their `+ Send` futures hold a `T::Columns` across an `.await`. Without `Sync`, or without `'static`, everything still compiles. Kept as promises to generic code (a shareable, storable `Columns`, as a cache would need). | 5 |
+| 61 | **Two columns of one name**: tokio-postgres's `position` (so shelf's `column`, and `Row::try_get`) finds the first; sqlx-postgres 0.9.0 builds `column_names: HashMap<UStr, usize>` by inserting each column in order (`connection/resolve.rs`), so the last wins. sqlx-core 0.9.0's `Row::try_get` checks `T::compatible` only for a non-NULL value, so a type mismatch in an empty result or an all-NULL column is never reported. Neither library refuses the duplicate; shelf does not either (§10, Chapter 5's Exercise 2). | 5 |
+| 62 | **tokio-postgres's per-row `accepts` is the safety net for a misused `Columns`**: `from_row_at` with a row of another statement whose columns are swapped fails as `Mapping::Decode` with a `WrongType` cause; a row with fewer columns fails as `Decode` with no cause (`invalid column`). Without the per-row check, `String`'s `FromSql` would decode the eight bytes of `1299::int8` as `"\0\0\0\0\0\0\u{5}\u{13}"`, silently. `decode_error`'s comment said a type mismatch has no cause; corrected. (Chapter 5's Exercise 3.) | 5 |
 
 ---
 
-## 13. Next steps: phase S3a, step by step
+## 13. Next steps: phase S3b, step by step
 
-**Resuming in a new session:** read this section first, then §7's Chapter 5, Chapter 5's sketch
-(`orm/book/05-column-indices.md`), §12 #4, #8, #13, #15 and #21, and the written Chapters 1–4
-for the voice. Each step is ticked when it is done and its gates are green, and a step in
-progress says how far it got. The work is on the branch `shelf` and may not be committed yet
-(`git status`); commit only when the user asks. **Check first that no other session is working
-in this repository** (§11): two sessions in one working tree overwrite each other's files.
+**Resuming in a new session:** read this section first, then §7's Chapters 6–9, their sketches
+(`orm/book/06-tables.md` to `09-patch-and-versions.md`, each describing the design as built),
+§4.0b, §10's rows marked S1b, §12 #28–#33, and the written Chapters 1–5 for the voice. Each
+step is ticked when it is done and its gates are green, and a step in progress says how far it
+got. The work is on the branch `shelf` and may not be committed yet (`git status`); commit only
+when the user asks. **Check first that no other session is working in this repository** (§11):
+two sessions in one working tree overwrite each other's files.
 
 **Done before:** S0, S1a and the sketches (2026-11-07); Chapters 0–4 (2026-11-09); S1b, S1c
-and S2, the capstone (2026-11-09, §4.0b–§4.0d). Chapters 1–4 were written before S1b and still
-describe shelf correctly (no forward-looking text left; `book.py excerpts` passes). Open from
-earlier phases: whether an executor should cache `Columns` with each prepared statement
-(Chapter 5's open question 3: `resolve` still runs per call); a serde helper for
+and S2, the capstone (2026-11-09, §4.0b–§4.0d); S3a, Part I (2026-11-09): Chapter 5 written,
+Chapter 0's §0.3 runnable, Chapters 0–5 `current`. Open from earlier phases: a serde helper for
 `Option<Option<T>>` (Chapter 9: check what is current); `json` fields on a `Patch`; composite
 foreign keys in relations; an optional version on a `Patch` (Chapter 14's Exercise 2, §10).
 
-**S3a, Part I** (§9: Chapters 0–5 `current`, `book.py --book orm check` passing, excerpts and
-links included):
+**S3b, Part II** (§9: Chapters 6–9 `current`, `book.py --book orm check` passing, excerpts and
+links included). For each chapter: settle its sketch's open questions (in §10 or §12), probe
+what is uncertain, write it in place of the sketch, `book.py --book orm fmt --chapter N` and
+`check --chapter N`, then set it `current`. Expansions come from `shelf_playground::pretty`,
+compiler errors from `orm/shelf/tests/ui/*.stderr`.
 
-- [ ] **1. Chapter 5, *Checking a statement once, not every row***: settle its sketch's open
-  questions (a relative timing in a debug build: §12 #15 measured one; how sqlx finds columns:
-  §12 #21; caching `Columns`: decide, and record it in §10), write it in place of the sketch
-  (`FromRow::{Columns, resolve, from_row_at}`, `from_rows`, `fetch_*`, `bench_mapping`), then
-  `book.py --book orm fmt --chapter 5` and `check --chapter 5`, and set it `current`.
-- [ ] **2. Chapter 0's §0.3 as a runnable program**: the ten lines of the target design, now
-  built (§4.4), against a temporary table or a schema of its own; reread Chapter 0 for anything
-  S1b–S2 changed (§0.2's comparison, §0.7); set it `current`.
-- [ ] **3. Wrap-up:** all gates (both books); the book PDF rebuilt; the status lines in this
+- [ ] **1. Chapter 6, *Tables: the model derive***: `#[derive(Table)]` (`shelf-codegen/src/table.rs`,
+  `sql.rs`, `shelf/src/table.rs`), SQL written at compile time with quoted identifiers, `find`,
+  `find_opt`, `all`, `count`, what `Table` refuses (UI test `table.rs`). Open: whether `flatten`
+  can join a model once `FromRow` knows its columns (decide, or make it an exercise).
+- [ ] **2. Chapter 7, *The executor and shelf's errors***: `Executor` (`shelf/src/executor.rs`,
+  §12 #28), the three statement strategies through lagproxy (§12 #29: a `needs=lagproxy`
+  example with a relative assertion), `shelf::Error` and an application's mapping (the
+  capstone's `app_error`, §12 #49). Its exercise, a statement cache for a plain `Client`, may
+  keep a `Columns` beside each statement (Chapter 5, §10).
+- [ ] **3. Chapter 8, *Writing rows***: `#[derive(Insert)]` and `Upsert` (`insert.rs`,
+  `write.rs`, the compile-time join, §12 #32), `update`, `delete`, `delete_by_key`, defaults
+  (`uuidv7()`, PG 18+), constraint errors. Open: whether `DO NOTHING` (an `Option`) earns a
+  method; `MERGE … RETURNING` (PG 17+) as the alternative, verified on the server.
+- [ ] **4. Chapter 9, *Partial updates and optimistic locking***: the three designs measured
+  (§12 #30, #33), `#[derive(Patch)]`, `version` and `Stale` in one round trip (§12 #31),
+  `updated_at`, ETag and `If-Match` in axum (driven with `oneshot`, never a port). Open: the
+  serde helper for `Option<Option<T>>` (check the crates' current versions), `json` fields on
+  a patch.
+- [ ] **5. Wrap-up:** all gates (both books); the book PDF rebuilt; the status lines in this
   file, orm/CLAUDE.md and the root CLAUDE.md; then replace this checklist with the next phase's
-  (§9: S3b, Chapters 6–9), and ask the user about a commit.
+  (§9: S3c, Chapters 10–14 and the appendix), and ask the user about a commit.

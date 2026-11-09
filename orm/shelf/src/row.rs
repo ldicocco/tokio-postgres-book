@@ -168,8 +168,8 @@ fn decode_error(
     let problem = match error.into_source() {
         Some(source) if source.is::<WasNull>() => Mapping::Null { column },
         Some(source) => Mapping::Decode { column, source },
-        // No cause: the index or the type did not fit, which `resolve` rules out unless the
-        // row comes from another statement.
+        // No cause: the index is not in the row, which `resolve` rules out unless the row
+        // comes from another statement. (A type that does not fit has a cause, `WrongType`.)
         None => Mapping::Decode {
             column,
             source: message.into(),
