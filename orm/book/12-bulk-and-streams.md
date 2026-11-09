@@ -1102,7 +1102,7 @@ one place: the struct's fields, and the server's description of its `INSERT`.
 - `copy_in` writes binary COPY with the `INSERT`'s parameter types, the columns' own, and each
   row's `params()`. Errors during the copy leave the connection usable.
 - On localhost, 20,000 rows took 0.77 s one by one, 0.15 s pipelined, 0.014 s with `insert_many`
-  and 0.006 s with `copy_in`, the same as pgload's hand-written versions.
+  and 0.006 s with `copy_in`, close to pgload's hand-written versions (its pipelined loop: 0.12 s).
 - `ModelStream` reads one model at a time, its columns resolved once; it is `Unpin`, so it needs
   no `pin!`. While it lives, its connection serves no one else, and the borrow keeps a pooled
   connection from going back mid-stream.

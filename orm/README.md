@@ -7,13 +7,14 @@ The derive macros that map rows to structs come first. A model layer, partial up
 optimistic locking, a typed query builder, relations without N+1 queries, bulk writes, streams
 and a schema check follow.**
 
-> **Status: phases S1a, S1b, S1c and S2 done, on the branch `shelf`.** The plan is in
-> [PLAN.md](PLAN.md). shelf is built and tested: `#[derive(FromRow)]`, the model layer (`Table`,
-> `Insert`, `Patch`, the executor), the typed query builder, relations, bulk writes, streams
-> and `verify`; and so is the capstone, `stockroom-shelf`, which serves the main book's
-> stockroom API with stores, products and orders on shelf. **Chapters 0–4 are written**; every other chapter is
-> **sketched**: a plan of the chapter in its place, with draft prose where the content is
-> settled ([SKETCHES.md](SKETCHES.md)). [The book PDF](book/shelf-book.pdf) shows them all.
+> **Status: complete, on the branch `shelf`; phase S4 (polish, and the merge into `main`) is
+> under way.** The plan is in [PLAN.md](PLAN.md). shelf is built and tested:
+> `#[derive(FromRow)]`, the model layer (`Table`, `Insert`, `Patch`, the executor), the typed
+> query builder, relations, bulk writes, streams and `verify`; and so is the capstone,
+> `stockroom-shelf`, which serves the main book's stockroom API with stores, products and orders
+> on shelf. **Every chapter is written**, with 141 runnable examples that `book.py --book orm
+> check` compiles, lints and runs against PostgreSQL 18, and [the book PDF](book/shelf-book.pdf)
+> holds them all.
 
 ## Who it is for
 

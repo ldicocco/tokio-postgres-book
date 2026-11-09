@@ -69,7 +69,7 @@ pub trait Table: FromRow + Send + Sync {
     /// `key` as statement parameters, in the order of the key's columns.
     fn key_params(key: &Self::Key) -> Vec<&(dyn ToSql + Sync)>;
 
-    // … find, find_opt, all and count (§6.4); update and delete (Chapter 8)
+    // … find, find_opt, all and count (§6.4), query (Chapter 10), the writes (Chapters 8 and 9)
 }
 ~~~
 
@@ -129,7 +129,8 @@ literal you could write by hand, which is what makes it safe to print, to log an
 ## 6.2 `#[derive(Table)]`
 
 `Table` goes beside `FromRow` and reads the column names `FromRow` reads, `rename` and
-`rename_all` included. It adds four keys of its own, and two that Chapter 9 uses:
+`rename_all` included. It adds four keys of its own, two that Chapter 9 uses, and the relations
+that Chapter 11 adds:
 
 | Attribute | On | Meaning |
 |---|---|---|
@@ -138,6 +139,7 @@ literal you could write by hand, which is what makes it safe to print, to log an
 | `primary_key` | a field | Part of the key (required on at least one field); several make a composite key |
 | `generated` | a field | The database fills it (`DEFAULT uuidv7()`, `now()`, an identity): writes leave it out |
 | `version`, `updated_at` | a field | Optimistic locking and a modification time (Chapter 9) |
+| `has_many(…)`, `belongs_to(…)` | the struct | Relations to other models, and their loaders (Chapter 11) |
 
 `generated` changes nothing about reading. A generated column is read like any other; the flag
 is for Chapter 8, where `update` must not write a column the database owns, and the struct a new
@@ -251,7 +253,7 @@ error: a Table model cannot be generic: its SQL names one table
 ```
 
 Every one of these is reported in a single build, combined as Chapter 4 combined `FromRow`'s
-(§4.4). The last two need a word each.
+(§4.4). Two of them need a word each.
 
 **No type parameters.** A model's SQL names one table. `Page<T>` would send the same
 `SELECT … FROM "pages"` for every `T`, and the `T` would have nothing to do with the rows. The
@@ -899,7 +901,7 @@ help: try using a local `let` binding instead
 The help does not help: a `let` binding is not a constant, so it cannot size the array. A
 `static` in a generic function has the same limit, so moving the statement into a `LazyLock`
 would not help either. That is one more reason `Table` refuses type parameters (§6.2), and the
-reason Chapter 8's `Insert` refuses a model that mentions its own.
+reason Chapter 8's `Insert` refuses a struct with type parameters.
 
 The other limit is computing. Joining puts finished pieces side by side; it cannot decide what a
 piece says. Chapter 9's `Patch` writes an `UPDATE` whose key parameters are numbered after its
@@ -1081,7 +1083,7 @@ of the key's columns, which is the order of the `$n` in `FIND`.
    blanket impl for every `T: Table` adds it to every model; `TABLE` and `KEY_COLUMNS` are
    public constants.
 2. **Several keys, one statement.** Write `find_many(&db, &[i64])` that returns every product
-   whose key is in the slice, in one round trip, for a model with a single-column key.
+   whose key is in the slice, with one statement, for a model with a single-column key.
    *Hint:* `= ANY($1)` with an array parameter
    ([main book §3.8](../../book/03-rows-and-types.md#38-arrays)). Chapter 11's relation loaders
    are built on the same statement.
@@ -1166,7 +1168,7 @@ struct Product {
     sku: String,
 }
 
-/// Every product whose id is in `ids`, in one round trip, ordered by id.
+/// Every product whose id is in `ids`, with one statement, ordered by id.
 async fn find_many(db: &impl Executor, ids: &[i64]) -> Result<Vec<Product>, shelf::Error> {
     let [key] = Product::KEY_COLUMNS else {
         unreachable!("Product has a single-column key");

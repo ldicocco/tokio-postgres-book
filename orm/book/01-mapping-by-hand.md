@@ -560,9 +560,9 @@ product with two prices, a list price and a sale price, cannot use `Price` twice
 read the same two columns. You would alias them in SQL and give `Price` a second impl, or pass a
 prefix in at run time and build each name with `format!`, one allocation per column per row.
 
-Chapter 4's `#[shelf(flatten)]` does the first half with one attribute: it reads a nested
-`FromRow` struct from the same row. The column names stay the inner struct's business, which
-you set with its own `#[shelf(rename = "…")]` attributes.
+Chapter 4's `#[shelf(flatten)]` replaces the hand-written call with one attribute: it reads a
+nested `FromRow` struct from the same row. The column names stay the inner struct's business,
+which you set with its own `#[shelf(rename = "…")]` attributes, so the catch remains (§4.3).
 
 ## 1.5 Fetch helpers
 
@@ -803,7 +803,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## In stockroom
 
 stockroom is the hand-written version at full size. Its `Store` has five fields, and the file
-that reads it names each of them four times: in the struct, in two `SELECT` lists (one in
+names each of them four times just to read it: in the struct, in two `SELECT` lists (one in
 `list`, one in `create`'s `RETURNING`), and in `try_from`:
 
 ~~~rust
@@ -847,7 +847,7 @@ struct, read by `FromSql`, and the opposite of §1.4's nesting, where one struct
 columns. shelf keeps both: `FromSql` types such as `Address` are ordinary fields, and
 `flatten` handles the other kind.
 
-Chapter 14 rewrites part of stockroom on shelf and counts the lines this saves.
+Chapter 14 rewrites part of stockroom on shelf and counts the lines, saved and added.
 
 ## When not to use a mapping trait
 
@@ -993,7 +993,7 @@ the field and as the string. Both are exactly what a macro knows when it generat
 comparisons per row for *any* order of the `SELECT` list. Measured in a debug build, three
 rounds each: 202.7–206.9 ms in reverse order and 205.2–206.6 ms in the struct's order, against
 124–130 ms by position in both. What does grow the cost is the number of columns: twice as many
-columns means four times as many comparisons per row.
+columns means nearly four times as many comparisons per row (300 against 78).
 
 **3.** The impl is allowed because `FromRow` is defined in this program:
 

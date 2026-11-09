@@ -96,8 +96,9 @@ pub fn router(state: AppState, options: RouterOptions) -> Router {
 [orm/stockroom-shelf/src/http/mod.rs](../stockroom-shelf/src/http/mod.rs)
 
 First, a ported route with a parameter captures paths that stockroom's router serves as static
-routes: `/products/{sku}` matches `/products/import`, and a fallback is consulted only when no
-route matches, so the import would reach the port's `PATCH` handler with the SKU "import". Each
+routes: `/products/{sku}` matches `/products/export.csv`, and a fallback is consulted only when
+no route matches, so the CSV export would reach the port's `get` handler with the SKU
+"export.csv". Each
 such path is therefore routed to stockroom by name. Second, `route_service(path, stockroom)`
 panics at startup: "Invalid route: `Router::route_service` cannot be used with `Router`s. Use
 `Router::nest` instead". `nest` would strip the prefix that stockroom's router routes by;
@@ -257,7 +258,7 @@ pub struct LineRow {
 
 [orm/stockroom-shelf/src/repo/orders.rs](../stockroom-shelf/src/repo/orders.rs)
 
-Every attribute of the book is here: an enum (`OrderStatus`, postgres-types' derive), a `json`
+Much of the book is here: an enum (`OrderStatus`, postgres-types' derive), a `json`
 document (`Customer`), `version` and `updated_at`, two `belongs_to` and a `has_many`, a borrowed
 `json` field on an `Insert` (`&'a Customer`, written through Chapter 8's `Json::from_ref`), and the
 domain `Quantity`, which `NewLineRow::insert_many` sends as an array cast to `positive_quantity[]`,
@@ -337,7 +338,7 @@ pub async fn update(
 Without `If-Match`, another write can land between the read and the patch; the patch is then
 `Stale`, and the loop reads again and patches the newer row. Each retry means that someone else's
 write succeeded, so the loop always makes progress. A test fires 30 patches without `If-Match` at
-once, and every one returns 200 with the row at version 31 (`concurrent_patches_without_if_match_all_apply`,
+once, and every one returns 200, and the row ends at version 31 (`concurrent_patches_without_if_match_all_apply`,
 orm/PLAN.md §12 #51). The cost is a second statement and a second round trip; Exercise 2 gives
 `Patch` an optional version and removes both.
 
@@ -612,7 +613,7 @@ stockroom's `transition`, checking that the two data layers agree on every row t
 
 **The escape hatch for `get`.** The round trip `orders::get` lost is not a limit of the approach,
 only of the builder: stockroom's two joined statements can be read with two `FromRow` structs
-through `fetch_one` and `fetch_all`, pipelined, which is one round trip again, and no assembly code. Exercise 3 does it. That is the pattern for the whole port: shelf for the everyday
+through `fetch_opt` and `fetch_all`, pipelined, which is one round trip again, and no assembly code. Exercise 3 does it. That is the pattern for the whole port: shelf for the everyday
 reads and writes, SQL for the statements whose wording is a rule or whose shape is not a table's.
 
 ## 14.6 Running it
@@ -689,15 +690,17 @@ the order a real project would feel the lack:
   query and loads one-to-many ones in batches (Chapter 11).
 - **Composite keys in relations**, and many-to-many through a junction table (Chapter 11, Exercise
   3, and SeaORM's `via`).
-- **Migrations from models**, or at least a check that every model's table exists before the first
-  migration that needs it. `verify` is the read-only half of that.
+- **Migrations from models**, which Chapter 0 left out on purpose (§0.1: a schema is better
+  written as SQL). `verify` is the read-only half of that: it finds the drift, and the migration
+  stays yours to write.
 - **Hooks**: `before_insert`, `after_update`, for timestamps and audit rows that the database's
-  defaults and triggers do not already cover.
+  defaults and triggers do not already cover. Chapter 0 left them out too (§0.1): a plain call
+  before the write does the same, and you can see it.
 - **Optional versions** on a patch (Exercise 2) and conditional updates in general
   (`update_where`), for the cases that are rules but simple ones.
 - **Other databases.** shelf is PostgreSQL only, by design: `= ANY`, `unnest`, binary COPY,
   `RETURNING`, the catalog. diesel, SeaORM and sqlx pay for portability with abstractions shelf
-  does not need (Chapter 0, §0.2).
+  does not need (Chapter 0, §0.1).
 
 What it should not add, in this book's opinion, is lazy loading and an identity map: both hide
 round trips and state, and Chapter 11 argued why every round trip should be a call you can see.
@@ -745,11 +748,13 @@ both routers.
 ### Solutions
 
 **1.** A `StockLine` response type (`sku`, `on_hand`, `reserved`, `available`), serialized like
-stockroom's. In the repository: `stores::by_code`, then `Stock::query().filter(Stock::STORE_ID.eq(store.id))`
-ordered as stockroom orders it, then `Stock::load_product`-style loading of the products, which
+stockroom's. In the repository: `stores::by_code`, then `Stock::query().filter(Stock::STORE_ID.eq(store.id))`,
+then `Stock::load_product`-style loading of the products, which
 needs a `belongs_to(Product, key = product_id)` on `Stock`. Map `available: Option<i32>` with
 `unwrap_or_default()` or, better, compute `on_hand - reserved` in Rust, which is what the virtual
-column means. Three round trips against stockroom's one join; pipelining the store lookup is not
+column means. Sort by SKU in Rust once the products are loaded (stockroom orders by `p.sku`, a
+column of `products`). Three round trips against stockroom's two (the store by code, then one
+join); pipelining the store lookup is not
 possible, since the stock query needs its id, so the escape hatch of §14.5 is worth considering
 here too. Add the path to the router, and a `both` scenario that adjusts stock through stockroom's
 route and reads it through the port's.
@@ -758,17 +763,18 @@ route and reads it through the port's.
 it `"version" = coalesce($n, "version")` and the generated parameter an `Option<i32>`, so that
 `None` means "any version". The `#[shelf(version)]` field on a `Patch` becomes `Option<…>` (the
 derive's `const` check that the model has a version stays), and `Stale` can only come from a
-`Some`. `products::update` then needs the key: either a `Patch` that applies by a unique column
-(`apply_by(Product::SKU, &sku)`, a larger change), or keep the read by SKU and drop only the loop.
+`Some`. `products::update` then needs to patch by SKU without reading the key first: a `Patch` that
+applies by a unique column (`apply_by(Product::SKU, &sku)`), a larger change.
 Update the expansion test (`SHELF_BLESS=1`, read the diff), the `patch` integration tests, and
 Chapter 9's text about the design.
 
 **3.** Two structs, `OrderHead { id, store, status, customer, total_cents, version, created_at,
 updated_at }` (with `store` the joined `s.code`, and `#[shelf(json)] customer`) and `LineView { sku,
-quantity, unit_price_cents }`, then `tokio::try_join!(fetch_opt::<OrderHead>(db, HEAD, &[&id]),
-fetch_all::<LineView>(db, LINES, &[&id]))` with stockroom's two statements as constants. The
-parameter slice must be bound to a name before the `try_join!`, since both futures borrow it (the
-main book's verified facts). `line_for_line` should then report 2 statements and 1.0 round trip for
+quantity, unit_price_cents }`. Bind the parameters first, `let params: &[&(dyn ToSql + Sync)] =
+&[&id];`, then `tokio::try_join!(fetch_opt::<OrderHead>(db, HEAD, params),
+fetch_all::<LineView>(db, LINES, params))` with stockroom's two statements as constants: both
+futures borrow the slice, so a `&[&id]` written inside the `try_join!` would be dropped too soon
+(main book [§7.5](../../book/07-pipelining.md#75-many-queries-a-few-at-a-time)). `line_for_line` should then report 2 statements and 1.0 round trip for
 `get` on both sides, and `view` disappears. The port keeps its models for writing; reading the
 response's shape directly is SQL's job.
 

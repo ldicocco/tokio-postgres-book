@@ -408,7 +408,9 @@ any name the user's module defines:
 /// What generated code refers to. Not part of the API: it may change in any release.
 #[doc(hidden)]
 pub mod __private {
+    // …
     pub use crate::json::Json;
+    // …
     pub use crate::row::{column, column_at, get, get_try_from};
     // …
     pub use tokio_postgres;
@@ -505,6 +507,7 @@ type Result = ();
 const Ok: () = ();
 #[allow(dead_code)]
 trait Default {}
+// … and `type str = ();`, `type u8 = ();`
 
 #[allow(dead_code)] // only the impls matter here
 #[derive(shelf::FromRow)]
@@ -535,7 +538,7 @@ code shows up as a diff in review (Chapter 13).
 **Ask the compiler.** rustc can print a crate after expanding every macro in it, with the
 unstable flag `-Zunpretty=expanded`. The tool [cargo-expand](https://github.com/dtolnay/cargo-expand)
 wraps it (`cargo install cargo-expand`, then `cargo expand`), and formats the result with
-rustfmt. An unstable flag is normally refused by a stable compiler:
+prettyplease, the formatter `pretty` uses. An unstable flag is normally refused by a stable compiler:
 
 ```text
 error: the option `Z` is only accepted on the nightly compiler

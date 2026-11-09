@@ -417,9 +417,9 @@ the first time `sql()` is called, and keeps the `String` for the rest of the pro
 > wait. A `static` must be initialised by a constant expression, and `LazyLock::new(closure)`
 > is one, which is what lets a `static` hold something built at run time. Before 1.80 the
 > `once_cell` and `lazy_static` crates did this job. Here, each patch type's `sql()` has its own
-> `static`, since each impl is a separate function; a `static` inside a generic function would
-> be one for every instantiation, which is one reason `Patch`, like `Table` and `Insert`, refuses
-> type parameters.
+> `static`, since each impl is a separate function; a `static` inside a generic function is one
+> item shared by every instantiation, and cannot name the function's type parameters (§6.5),
+> which is one reason `Patch`, like `Table` and `Insert`, refuses type parameters.
 
 `patch_sql` is ordinary run-time code, the counterpart of Chapter 6's `format!`s, run once per
 patch type:
@@ -639,12 +639,12 @@ query when the update finds nothing. shelf does it in the same statement:
 ~~~sql
 WITH updated AS (
     UPDATE "products" SET … , "version" = "version" + 1
-    WHERE "id" = $7 AND "version" = $6
+    WHERE "id" = $6 AND "version" = $5
     RETURNING "id", "name", …
 )
 SELECT "id", "name", …,
        (SELECT count(*) FROM updated) AS shelf_updated,
-       (SELECT "version"::bigint FROM "products" WHERE "id" = $7) AS shelf_version
+       (SELECT "version"::bigint FROM "products" WHERE "id" = $6) AS shelf_version
 FROM (VALUES (1)) AS one LEFT JOIN updated ON true
 ~~~
 
@@ -1106,8 +1106,9 @@ if result.rows_affected == 0 {
 }
 ~~~
 
-By hand, as stockroom's `products::update` writes it (a `coalesce` per field and for the version,
-then a second query when nothing was updated), and with shelf, in one program that runs the same
+By hand, as stockroom's `products::update` writes it (a `coalesce` per field, then a second
+query when nothing was updated; stockroom also `coalesce`s the version, which this program
+requires), and with shelf, in one program that runs the same
 two tabs through both:
 
 ```rust

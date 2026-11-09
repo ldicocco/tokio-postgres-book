@@ -1,10 +1,19 @@
 //! **shelf**: a small ORM on tokio-postgres, built chapter by chapter in the book under
 //! `orm/book/`.
 //!
-//! Phase S1a built the mapping: [`FromRow`] and its derive, with the `#[shelf(…)]` attributes
-//! `rename_all`, `rename`, `skip`, `flatten`, `json` and `try_from`; tuples read by position;
-//! one check per statement ([`FromRow::resolve`]); and the [`fetch_all`], [`fetch_one`] and
-//! [`fetch_opt`] helpers. orm/PLAN.md §4 describes the rest of the target design.
+//! - **The mapping** (Part I): [`FromRow`] and its derive, with the `#[shelf(…)]` attributes
+//!   `rename_all`, `rename`, `skip`, `flatten`, `json` and `try_from`; tuples read by position;
+//!   one check per statement ([`FromRow::resolve`]); and the [`fetch_all`], [`fetch_one`] and
+//!   [`fetch_opt`] helpers, for SQL you write.
+//! - **The model** (Part II): the [`Executor`] trait, implemented by tokio-postgres's `Client`
+//!   and `Transaction` and, with the default feature `deadpool`, by deadpool-postgres's; the
+//!   [`Table`] derive (`find`, `find_opt`, `all`, `count`, `update`, `delete`), [`Insert`] and
+//!   [`Upsert`], and [`Patch`], with optimistic locking through a `version` field; and
+//!   [`Error`].
+//! - **Queries and relations** (Part III): the [`query`] builder; `has_many` and `belongs_to`
+//!   relations, whose loaders read what a slice of rows relates to in one query; bulk writes
+//!   ([`Insert::insert_many`], [`Insert::copy_in`]); streams of models ([`fetch_stream`],
+//!   [`ModelStream`]); and [`verify`], which checks a model against its table at startup.
 //!
 //! ```ignore
 //! #[derive(Debug, shelf::FromRow)]
@@ -17,6 +26,23 @@
 //!
 //! let products: Vec<Product> =
 //!     shelf::fetch_all(&client, "SELECT id, sku_code, tags FROM products", &[]).await?;
+//! ```
+//!
+//! A model knows its table, so its everyday SQL is written for it, at compile time:
+//!
+//! ```ignore
+//! #[derive(Debug, FromRow, Table)]
+//! #[shelf(table = "orders", has_many(Line, key = order_id, as = lines))]
+//! struct Order {
+//!     #[shelf(primary_key)]
+//!     id: i64,
+//!     #[shelf(version)]
+//!     version: i32,
+//! }
+//!
+//! let order = Order::find(&db, &7).await?; // or Error::NotFound
+//! let orders = Order::query().filter(Order::ID.gt(100)).limit(20).all(&db).await?;
+//! let lines = Order::load_lines(&db, &orders).await?; // one query for every order
 //! ```
 
 mod bulk;
@@ -78,6 +104,15 @@ pub use shelf_macros::FromRow;
 /// | `generated` | The database fills it (`DEFAULT uuidv7()`, `now()`, an identity): writes leave it out |
 /// | `version` | Optimistic locking: an update expects the row at this version, and adds one; else [`Error::Stale`] |
 /// | `updated_at` | An update sets it to `now()`, the transaction's start time |
+///
+/// Relations go on the struct too, as many as the model has:
+///
+/// | Relation | Generates |
+/// |---|---|
+/// | `has_many(Line, key = order_id, as = lines)` | `order.lines(&db)`, a `Vec<Line>`, and `Order::load_lines(&db, &orders)`, one `Vec<Line>` per order, in the orders' order. `order_id` is a field of `Line`; `as` names the methods and is required. The model's key must be a single column |
+/// | `belongs_to(Order, key = order_id)` | `line.order(&db)`, an `Order` (an `Option<Order>` when the field is an `Option`), and `Line::load_order(&db, &lines)`, a `HashMap` from key to `Order`. `order_id` is a field of this struct; `as = name` renames the methods, which default to the model's name in snake case |
+///
+/// Each loader sends one query, `= ANY($1)` with every key in one array.
 ///
 /// Identifiers are quoted at compile time, so a table called `order` works. A model cannot be
 /// generic, and cannot `flatten` another struct, whose columns it would have to list.

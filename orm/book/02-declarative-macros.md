@@ -78,7 +78,8 @@ The fragment specifiers this book uses:
 
 The Rust Reference's
 [Macros By Example](https://doc.rust-lang.org/reference/macros-by-example.html) lists the
-others (`path`, `pat`, `block`, `item`, `lifetime`, `stmt`) and the rules about which tokens may
+others (`path`, `pat`, `pat_param`, `block`, `item`, `lifetime`, `stmt`, `expr_2021`) and the
+rules about which tokens may
 follow each one.
 
 > **Rust refresher:** macros expand before the compiler checks types, or even knows what most

@@ -199,7 +199,8 @@ disappear when their connection closes, so they leave nothing behind and can run
 
 ### The toolchain
 
-The book uses Rust's 2024 edition, so you need Rust 1.85 or newer (it was written with 1.99):
+The book uses Rust's 2024 edition and crates that need a recent compiler, so you need Rust 1.89
+or newer (uuid 1.29 declares it; the book was written with 1.99):
 
 ```bash
 rustup update

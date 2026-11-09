@@ -444,8 +444,8 @@ Two problems are left for the rows, because a statement cannot reveal them:
 
 Both still name the struct, the field and the column, because the per-row helper that reads a
 value is given the same names as `column` (In shelf, below). And tokio-postgres's own
-`accepts` check still runs inside `try_get(index)` on every row: Chapter 1 found that skipping
-it, through a raw-bytes wrapper, saves nothing measurable
+`accepts` check still runs inside `try_get(index)` on every row: the measurement behind Chapter
+1's timings found that skipping it, through a raw-bytes wrapper, saves nothing measurable
 ([orm/PLAN.md §12](../PLAN.md#12-findings-from-building-the-software-material-for-the-chapters),
 finding 8), and it turns a misuse of `from_row_at` into an error instead of garbage
 (Exercise 3).

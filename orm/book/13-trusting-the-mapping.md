@@ -11,8 +11,8 @@ only when a NULL finally turns up in a row, which may be weeks later.
 This chapter moves the check earlier. `shelf::verify` checks a model against its table at
 startup: it prepares a statement over the table, compares its columns with the struct's fields,
 asks the catalog which columns may be NULL, and reports every mismatch at once. Then it turns to
-the other side of trust, the macros themselves, and the three kinds of test shelf has had since
-its first derive: expansion tests, UI tests and tests against the database, with what each one
+the other side of trust, the macros themselves, and the four kinds of test shelf has had since
+its first derive: expansion tests, UI tests, a hygiene test and tests against the database, with what each one
 catches and what none of them can.
 
 **In this chapter you will learn:**
@@ -428,7 +428,8 @@ pub async fn verify_models(db: &impl Executor) -> Result<(), Vec<shelf::Error>> 
 
 The five checks are pipelined on one connection with `join!`, not `try_join!`: every model is
 checked, and every error kept, so one restart shows everything that needs fixing. Each check
-costs two round trips (the description, then the catalog), and pipelined, five cost about as
+costs two or three round trips (the description, then the catalog query, prepared first unless
+the connection has it cached), and pipelined, five cost about as
 much as one. A startup that takes a few milliseconds longer is cheap; a deploy that fails at its
 first request is not.
 
@@ -496,7 +497,7 @@ catches what the others cannot:
 ### Expansion tests
 
 An expansion test is a golden file: run the generator, print the result, compare it with a file
-committed beside the input. The harness is fifty lines:
+committed beside the input. The harness is under a hundred lines:
 
 ~~~rust
 // orm/shelf-codegen/tests/expand.rs (excerpt)
@@ -622,10 +623,10 @@ fn derive_errors() {
 
 [orm/shelf/tests/ui.rs](../shelf/tests/ui.rs)
 
-Twelve files hold every error shelf's derives report, and the query builder's and relations'
-type errors (Chapters 4, 10 and 11 printed them). Each `.stderr` is rustc's text, so it changes
-with the toolchain: the repository pins rustc 1.99.1, and `TRYBUILD=overwrite` accepts new output
-deliberately, to be read like an expansion diff. Reading them is what produced shelf's
+Twelve files hold every error shelf's derives report, the query builder's and relations' type
+errors, and a stream outliving its connection (Chapters 4, 6 and 8–12 printed them). Each
+`.stderr` is rustc's text, so it changes with the toolchain: these were captured with rustc
+1.99.1, and `TRYBUILD=overwrite` accepts new output deliberately, to be read like an expansion diff. Reading them is what produced shelf's
 `#[diagnostic::on_unimplemented]` messages (Chapter 4, §4.5) and the `Condition` trait (Chapter
 10, §10.6): an error that was correct but pointed the wrong way showed up in a `.stderr` file
 before it showed up in a user's terminal.
@@ -662,7 +663,8 @@ stop compiling. The test passes by compiling; its body only asserts that the imp
 ### Integration tests
 
 Everything else is checked against PostgreSQL: each derive and each attribute in
-`shelf/tests/*.rs` (from_row, table, insert, patch, query, relations, bulk, stream, verify), with
+`shelf/tests/*.rs` (from_row, table, insert, patch, executor, query, relations, bulk, stream,
+verify), with
 the harness `TestDb`, which gives each test a schema of its own in the database `shelf_test`:
 
 ~~~rust
@@ -846,7 +848,8 @@ shelf's tests, as they stand at the end of Part III:
 | `shelf/examples/bench_*.rs` | benchmarks | the measured tables of Chapters 5, 11 and 12 |
 
 The integration tests need `ADMIN_DATABASE_URL` (a server where they may create `shelf_test`);
-the others need only a compiler. `cargo test -p shelf -p shelf-codegen` runs all of them.
+the expansion, UI and hygiene tests need only a compiler. `cargo test -p shelf -p shelf-codegen`
+runs all the tests; the benchmarks run with `cargo run --release --example`.
 
 ## When not to use `verify`
 

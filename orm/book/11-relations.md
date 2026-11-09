@@ -241,10 +241,12 @@ fn main() {
 }
 ```
 
-Each method hands a loader three things the derive cannot compute itself: the child's column
+Each method hands one of shelf's functions (`children` or `load_children`, §11.3) three things
+the derive cannot compute itself: the child's column
 constant, `OrderLine::ORDER_ID` (Chapter 10), for the query; a closure that reads a child's
 foreign key, `|child: &OrderLine| &child.order_id`, for the grouping; and the parent's key. The
-return type is written out as `impl Future<…> + Send + 'a`, as everywhere in shelf (Chapter 7):
+return type is written out as `impl Future<…> + Send + 'a`, as in the `Executor` trait (Chapter
+7, §7.2):
 the future borrows `self` and `db` for `'a`, and is `Send` whatever the executor. `belongs_to`
 is shorter still: `line.order(&db)` is `<Order as Table>::find(db, &self.order_id)`, Chapter
 6's `find` with the foreign key.
@@ -729,8 +731,9 @@ The details each settle a question:
   return nothing, at the cost of a round trip.
 - **The bounds say what the grouping needs.** The key must be hashable and comparable
   (`Hash + Eq`), and cloned into the map (`Clone`); keys are integers, UUIDs and short strings,
-  for which that is cheap. `P::Key: Value<T>` says the parent's key fits the child's column, the
-  check that produced §11.1's `ForeignKey` error.
+  for which that is cheap. `P::Key: Value<T>` says the parent's key fits the child's column, and
+  `F: ForeignKey<P::Key>` that the child's field holds such a key: the bound behind §11.1's
+  `ForeignKey` error, which `load_parents` has too.
 - **`ForeignKey` reads `i64` and `Option<i64>` alike.** It is implemented for `K` and for
   `Option<K>`, returning `Option<&K>`, so a child whose nullable foreign key is NULL belongs to
   no parent and is skipped.
@@ -849,7 +852,7 @@ Pipelining also rescues the N+1 loop, up to a point: in §11.2, `try_join_all` o
 queries, since all of them travel together, but not their *work*: the server still parses, plans
 and runs fifty statements, and the client still decodes fifty results. The benchmark's localhost
 column shows that work when the network is gone: 3.3–3.5 ms for the pipelined loop against 0.2 ms
-for one pooled `load_lines`, 15 times as much. Pipelining is the right tool for independent
+for one pooled `load_lines`, about 17 times as much. Pipelining is the right tool for independent
 queries; batching is the right tool for the same query repeated.
 
 ## 11.5 Joins
@@ -1254,8 +1257,8 @@ pub async fn get(db: &impl Executor, id: Uuid) -> Result<Order, AppError> {
 
 [orm/stockroom-shelf/src/repo/orders.rs](../stockroom-shelf/src/repo/orders.rs)
 
-Two round trips against one: through lagproxy, 28.4–29.9 ms against 13.2–14.8 ms (orm/PLAN.md
-§12 #54, measured in Chapter 14). Calling the relation methods one after another would take
+Two round trips against one: through lagproxy, 27.6–28.1 ms against 13.8–14.3 ms (Chapter 14,
+§14.3; orm/PLAN.md §12 #73). Calling the relation methods one after another would take
 three. This is §11.5's trade in a real handler: the join puts the store's code and the products'
 SKUs in the rows that need them, and the loaders cannot, because what a line needs from its
 product is decided by the line. For one order, the hand-written joins win on round trips; for a

@@ -38,10 +38,7 @@ it costs, and where hand-written SQL is still the better tool.
 | [14 · Capstone](14-capstone.md) | Part of stockroom rewritten on shelf behind the same routes, compared line for line |
 | [A · Appendix](15-appendix.md) | An attribute reference, what each derive generates, a phrasebook, a glossary |
 
-The whole book is also a single PDF, [shelf-book.pdf](shelf-book.pdf). A chapter that is not
-written yet appears there, and in this repository, as a **sketch**: a plan of the chapter in its
-place, which the chapter replaces when it is written. [orm/README.md](../README.md#contents)
-shows which is which.
+The whole book is also a single PDF, [shelf-book.pdf](shelf-book.pdf).
 
 Part I (Chapters 1–5) is the mapping: from a hand-written trait, through `macro_rules!`, to a
 derive that checks a whole statement before it reads the first row. Part II (6–9) is the model:
@@ -99,7 +96,7 @@ A newer entrant, **toasty**, is the Tokio project's ORM: models are structs with
 holds a `tokio_postgres::Client`. It is young (0.11, with breaking changes in each release). The
 main book's [Appendix F](../../book/19-appendix.md#f-the-crates-built-on-tokio-postgres) has
 the versions, dates and details of every crate in this section that is built on tokio-postgres.
-The sqlx and SeaORM illustrations in this book follow sqlx 0.9 and SeaORM 2.0.
+The illustrations in this book follow sqlx 0.9, SeaORM 2.0, diesel 2.3 and darling 0.24.
 
 What shelf decides differently, and why it is worth building rather than adopting:
 
@@ -119,7 +116,8 @@ What shelf decides differently, and why it is worth building rather than adoptin
 
 By the end of Part III, a model and its everyday SQL look like this. Chapters 6–13 build each
 piece, and this program runs them all, against temporary tables of its own. The ten lines that
-matter are the ones in `main` after the setup, each with a comment saying what it sends:
+matter are the calls in `main` after the setup, and each one that talks to the server has a
+comment saying what it sends:
 
 ```rust
 use jiff::Timestamp;
@@ -351,8 +349,9 @@ is not compiled on its own.
 ### What you need
 
 The main book's setup, from its [Chapter 0](../../book/00-introduction.md#setting-up):
-PostgreSQL 18, a database for the examples named by `DATABASE_URL`, and Rust 1.85 or newer for
-the 2024 edition. This book was written with rustc 1.99.1.
+PostgreSQL 18, a database for the examples named by `DATABASE_URL`, and Rust 1.89 or newer
+(the 2024 edition, let chains, and the locked dependencies: uuid 1.29 declares 1.89). This book
+was written with rustc 1.99.1.
 
 shelf is not published on crates.io. It lives in this repository, next to the main book's
 workspace, and so do its examples. Work from a clone of the repository; every command below
@@ -398,9 +397,10 @@ python3 tools/book.py --book orm check                   # the whole book
 
 ### shelf's own tests
 
-shelf is tested apart from the book: unit tests, tests that pin down what each derive expands
-to, tests that pin down the compiler errors it causes, and integration tests that give each test
-its own schema in a database named `shelf_test`. Chapter 13 explains each kind.
+shelf is tested apart from the book: tests that pin down what each derive expands to, tests that
+pin down the compiler errors it causes, a hygiene test, and integration tests that give each test
+its own schema in a database named `shelf_test`, besides unit tests. Chapter 13 explains the
+four kinds.
 
 ```bash
 cargo test -p shelf -p shelf-codegen                     # needs ADMIN_DATABASE_URL

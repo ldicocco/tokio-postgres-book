@@ -286,3 +286,8 @@ The root list applies, plus:
   panic's first line carries the thread id (`thread 'main' (25976639)`), which changes per run.
 - **SeaORM 2.0.4 and diesel 2.3.14 sources are in `~/.cargo/registry/src/`**, beside sqlx 0.9.0
   and darling 0.24.1: the side-by-sides quote them from there (§12 #68).
+- **The workspace needs Rust 1.89** (S4): the locked uuid 1.29.0 declares `rust-version = 1.89`,
+  and the code uses let chains (1.88). Clippy's `incompatible_msrv` with `msrv = "1.89"` (through
+  `CLIPPY_CONF_DIR`) is clean across the workspace. Nothing pins the toolchain: there is no
+  `rust-toolchain` file, and the `.stderr` files were captured with rustc 1.99.1. cargo-expand
+  formats with prettyplease 0.3, not rustfmt.

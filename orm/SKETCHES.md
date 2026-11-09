@@ -1,5 +1,9 @@
 # Chapter sketches
 
+**No sketch remains in `orm/book/`.** Every chapter of the shelf book replaced its sketch by the
+end of 9 November 2026 (phase S3c), so the sketches this file describes are in the git history,
+not in the tree. The file stays as the method, for a chapter added later.
+
 Before a chapter of the shelf book is written, it has a sketch: a short plan of the chapter,
 with draft prose where the content can already be defined. The format follows the author's
 other book series (*Decisions in the Loop*, `tools/SKETCHES.md` there), adapted to this book's
@@ -20,8 +24,6 @@ contains the sketches (the registry's `pdf_statuses`), so a reader sees the whol
 before it is written. All sixteen were written on 7 November 2026, after phase S1a; Chapters 0–4
 replaced theirs on 9 November 2026, and the sketches of Chapters 6–13 were revised the same day
 to the design as built in phases S1b and S1c, and Chapter 14's to the capstone as built in S2.
-By the end of 9 November 2026 (phase S3c) every chapter had replaced its sketch; this file stays as
-the method, for a chapter added later.
 
 When a chapter is written, it replaces its sketch: the same file, the card gone, the open
 questions settled (in PLAN.md §10 or §12), the status `draft` and then `current`. A sketch

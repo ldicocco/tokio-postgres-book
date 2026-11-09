@@ -248,7 +248,7 @@ impl FieldAttrs {
             once(&mut self.rename, lit, meta)
         } else if meta.path.is_ident("skip") {
             flag(&mut self.skip, meta)
-            // … `flatten`, `json`, `primary_key` and `generated` the same way
+            // … `flatten`, `json`, `primary_key`, `generated`, `version`, `updated_at` and `conflict` the same way
         } else if meta.path.is_ident("try_from") {
             let ty = type_value(meta)?;
             once(&mut self.try_from, ty, meta)
@@ -964,8 +964,10 @@ fn derive_errors() {
 Each file is a small program that should not compile, with its mistakes on separate lines so
 that each error has its own line number, and the `.stderr` beside it holds the compiler's
 output: `conflicts.rs` holds the three fields of §4.4, and `conflicts.stderr` is what §4.4
-printed. There is a pair for each kind of mistake: the shapes of §3.7, unknown keys, the bad
-values of §4.2, the conflicts of §4.4, an unreadable type and a lifetime (below).
+printed. For `FromRow` there is a pair for each kind of mistake: the shapes of §3.7, unknown
+keys, the bad values of §4.2, the conflicts of §4.4, an unreadable type and a lifetime (below).
+The later derives and the query builder add their own pairs (`table.rs`, `insert.rs`,
+`patch.rs`, `relations.rs`, `query.rs` and `stream.rs`, Chapters 6 and 8–12).
 
 trybuild builds the files in a project of its own, which depends on shelf, and normalizes what
 the compiler prints before it compares, so that the files do not depend on the machine
@@ -1425,7 +1427,7 @@ What it does not do: shelf's combinations are shelf's rules, so they are written
 where shelf says "`skip` takes no value"). And it is five more crates to compile before your
 derive: darling, darling_core, darling_macro, ident_case and, for the suggestions, strsim.
 
-shelf parses by hand because this book is about the mechanism: `attrs.rs` is about 250 lines,
+shelf parses by hand because this book is about the mechanism: `attrs.rs` is under 500 lines,
 and every one of them is something darling would otherwise be doing for you. In a derive of
 your own with more than a few keys, darling is the better choice. Either way, once you have
 written the parser yourself, darling no longer looks like magic.

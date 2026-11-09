@@ -116,7 +116,7 @@ book teaches. Its plan is in [orm/PLAN.md](orm/PLAN.md).
 
 ## Getting started
 
-You need Rust 1.88 or newer (edition 2024; tested with 1.99), PostgreSQL 18 with `psql` (most
+You need Rust 1.89 or newer (edition 2024, and uuid 1.29 needs 1.89; tested with 1.99), PostgreSQL 18 with `psql` (most
 examples run on 14 or newer, and the book marks what needs a newer version), and Python 3.11 or
 newer for the tooling.
 

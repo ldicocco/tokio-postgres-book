@@ -311,7 +311,7 @@ PostgreSQL, and the main-book chapter that taught that.
 |---|---|---|---|
 | `FromRow` by name | 1, 3 | `Row::try_get(&str)`, `FromSql` | 3 |
 | Tuples by position | 2 | `Row::try_get(usize)` | 3 |
-| `json`, `try_from`, `flatten`, `rename`, `skip` | 4 | `types::Json<T>`, `FromSql` + `TryFrom` | 3.7, 3.8, 5 |
+| `json`, `try_from`, `flatten`, `rename`, `skip` | 4 | `types::Json<T>`, `FromSql` + `TryFrom` | 3.5, 3.7, 5 |
 | One check per statement | 5 | `Statement::columns()`, `Column::type_()`, `FromSql::accepts` | 3, 4 |
 | `Table`: SQL consts, quoted identifiers | 6 | `quote_ident`; an explicit column list, never `*` | 2.3, 4.6 |
 | `find`, `all`, `count` | 6 | `query_one`, `query_opt`, `query` | 2 |
@@ -322,8 +322,8 @@ PostgreSQL, and the main-book chapter that taught that.
 | `Patch` | 9 | statements per shape versus one statement | 4.6 |
 | `version`, `updated_at` | 9 | rows affected, `now()` | 8.8, 15.6 |
 | Transactions | 7, 9 | `transaction`, `build_transaction`, the retry helper | 8 |
-| Query builder | 10 | `$n` parameters, `= ANY($1)`, `@>`, keyset pagination | 2.3, 3.9, 9.6 |
-| Relations | 11 | arrays as parameters, pipelining with `try_join!` | 3.9, 7 |
+| Query builder | 10 | `$n` parameters, `= ANY($1)`, `@>`, keyset pagination | 2.3, 3.8, 9.6 |
+| Relations | 11 | arrays as parameters, pipelining with `try_join!` | 3.8, 7 |
 | `insert_many` | 12 | `unnest` of arrays, casts for domains | 10, 5 |
 | Binary COPY from the derive | 12 | `BinaryCopyInWriter`, types from a prepared statement | 10 |
 | Streams of models | 12 | `query_raw`, `RowStream`, backpressure | 9 |
@@ -351,7 +351,7 @@ PostgreSQL, and the main-book chapter that taught that.
   - *UI tests* with trybuild: `orm/shelf/tests/ui.rs` and one file per kind of error in
     `tests/ui/`, later also the query builder's type errors. The `.stderr` files depend on
     rustc's wording: regenerate them with `TRYBUILD=overwrite` when the toolchain changes
-    (pinned to rustc 1.99.1), and read the diff.
+    (captured with rustc 1.99.1; no `rust-toolchain` file pins it), and read the diff.
   - *Integration tests* against PostgreSQL in the database `shelf_test`, through
     `orm/shelf/tests/common/mod.rs`: `TestDb::new()` creates the database on first use, gives
     the test its own schema (set with `Config::options("-c search_path=…")`) and drops it at the
@@ -735,8 +735,8 @@ as in the main book, so that every excerpt quotes real code.
   the retry helper (main book §12 #6). Resolved in S1b (§12 #28); S1c's inherent `async fn`s
   (the builder, the loaders) are `Send` for a generic executor too, checked by compile-only
   functions in `tests/query.rs` and `tests/relations.rs`.
-- **trybuild's `.stderr` files** change when rustc's wording changes. The toolchain is pinned,
-  and they are regenerated deliberately.
+- **trybuild's `.stderr` files** change when rustc's wording changes. They were captured with rustc
+  1.99.1 (the repository has no `rust-toolchain` file), and are regenerated deliberately.
 - **syn 3 is recent.** Most examples online show syn 2. Resolved for Chapter 3: the
   differences a derive meets are two fields of `Field` (§12 #3, #5).
 - **`cargo expand`**: resolved, it runs on stable (§12 #7).
@@ -820,7 +820,7 @@ code, and tagged with the chapter where it belongs.
 | 56 | **`Config::host` and `Config::port` add to a config's lists** (tokio-postgres 0.7.18, multi-host configs): setting them on a copy of a config leaves its own host first, so the measurement's first pool connected around its proxies, and every count read 0. A new `Config` with the same user, password, database and options fixes it. (A tooling finding, met while building #54.) | — |
 | 57 | **Every row of a statement shares the statement's column list** (tokio-postgres 0.7.18: `Row` holds its `Statement`, and `Row::columns()` returns `self.statement.columns()`): `std::ptr::eq(row.columns(), statement.columns())` holds for every row of a prepared statement, and the rows of `query(&str)` share one list too. A `Column` keeps the name, the table OID and column number (`None` for 0), the type modifier and the `Type` from the *RowDescription*; an expression column has neither table nor number. (Chapter 5's first two programs.) | 5 |
 | 58 | **Chapter 5's measurements, again** (written 2026-11-09). `bench_mapping` (release, median of 5, three runs, rustc 1.99.1, Apple Silicon, PG 18.6 on localhost, with other sessions' builds on the machine): by name 40.6–41.7 ms, by index 13.2–13.5 ms, `from_rows` 14.1–14.4 ms (4–8% over by index), `from_row` per row 41.3–42.7 ms; the ratios match #13. In a debug build (the book's examples), `from_rows` 134.5–135.6 ms against `from_row` per row 225.6–227.2 ms, 1.7× in three runs: a relative assertion (`once < per_row`) has a wide margin. | 5 |
-| 59 | **One `resolve` costs well under a microsecond; a round trip costs tens** (12 fields, 10,000 calls; a prepared `SELECT 1`, 100 to 1,000 calls; localhost): release 262–268 ns against 46–47 µs (preparing the 12-column `SELECT`: 56 µs); debug 815–874 ns against 61–116 µs. So resolving is about 0.6% of the cheapest call, and shelf does not cache `Columns` per statement (§10). | 5 |
+| 59 | **One `resolve` costs well under a microsecond; a round trip costs tens** (12 fields, 10,000 calls; a prepared `SELECT 1`, 100 to 1,000 calls; localhost): release 262–268 ns against 46–47 µs (preparing the 12-column `SELECT`: 56 µs); debug 815–874 ns against 61–116 µs (Chapter 5's program, 100 calls: 77–116 µs in three runs). So resolving is about 0.6% of the cheapest call, and shelf does not cache `Columns` per statement (§10). | 5 |
 | 60 | **Only `Send` on `FromRow::Columns` is load-bearing** (probe, 2026-11-09: each bound removed in turn, `cargo check -p shelf --all-targets`). Without `Send`, `fetch_all`, `fetch_one`, `fetch_opt`, `Table::find` and `all` and `insert_many` stop compiling: their `+ Send` futures hold a `T::Columns` across an `.await`. Without `Sync`, or without `'static`, everything still compiles. Kept as promises to generic code (a shareable, storable `Columns`, as a cache would need). | 5 |
 | 61 | **Two columns of one name**: tokio-postgres's `position` (so shelf's `column`, and `Row::try_get`) finds the first; sqlx-postgres 0.9.0 builds `column_names: HashMap<UStr, usize>` by inserting each column in order (`connection/resolve.rs`), so the last wins. sqlx-core 0.9.0's `Row::try_get` checks `T::compatible` only for a non-NULL value, so a type mismatch in an empty result or an all-NULL column is never reported. Neither library refuses the duplicate; shelf does not either (§10, Chapter 5's Exercise 2). | 5 |
 | 62 | **tokio-postgres's per-row `accepts` is the safety net for a misused `Columns`**: `from_row_at` with a row of another statement whose columns are swapped fails as `Mapping::Decode` with a `WrongType` cause; a row with fewer columns fails as `Decode` with no cause (`invalid column`). Without the per-row check, `String`'s `FromSql` would decode the eight bytes of `1299::int8` as `"\0\0\0\0\0\0\u{5}\u{13}"`, silently. `decode_error`'s comment said a type mismatch has no cause; corrected. (Chapter 5's Exercise 3.) | 5 |
@@ -867,18 +867,34 @@ line break, the error a cached statement gets): capture, never type.
 merging `shelf` into `main`; done when `book.py --book orm list` shows every chapter `current` and
 the PDF fresh):
 
-- [ ] **1. Read-through**, Chapters 0–15 in order: cross-references between chapters written on
+- [x] **1. Read-through**, Chapters 0–15 in order: cross-references between chapters written on
   different days (Chapters 0–4 were written before S1b), terms against the appendix's glossary,
   figures quoted twice (a measurement in a chapter and in §12) agreeing, banners and
-  Previous/Next lines, every *Hint* present.
-- [ ] **2. Coverage audit** against §5's matrix: each row's chapter shows the feature, with a
-  runnable example or an excerpt; fix the matrix where a chapter moved a topic.
-- [ ] **3. Small debts found in S3c:** `orm/shelf/src/lib.rs`'s crate documentation still says
+  Previous/Next lines, every *Hint* present. *Done 2026-11-09:* banners, Previous/Next, hints
+  and every in-book `§N.M` checked by script; the prose read in five ranges, each finding checked
+  against the source before it was fixed (63 fixes). Notable: Chapter 0 still described sketches;
+  "Rust 1.85 or newer" in both books (and 1.88 in the root README) is wrong, since the locked uuid
+  1.29 declares 1.89 and the code uses let chains (1.88), and clippy's `incompatible_msrv` at 1.89
+  is clean, so both books and the README now say 1.89; Chapter 9's version-check SQL had
+  impossible `$n`s (the version is always `$2n+1`); Chapter 11 quoted #54's superseded timings
+  for `orders::get` (now #73's); Chapter 14's router paragraph named the import where #50 found
+  the export captured; Chapter 14's Solution 3 bound its parameters inline, which it said not to
+  do; Chapter 13 and this file said the toolchain is pinned, and nothing pins it.
+- [x] **2. Coverage audit** against §5's matrix: each row's chapter shows the feature, with a
+  runnable example or an excerpt; fix the matrix where a chapter moved a topic. *Done:* every
+  row holds; three main-book section numbers were off (arrays are §3.8, rows into structs §3.5).
+- [x] **3. Small debts found in S3c:** `orm/shelf/src/lib.rs`'s crate documentation still says
   "Phase S1a built the mapping" and lists only the mapping; its `Table` derive documentation does
   not mention `has_many` and `belongs_to`. orm/SKETCHES.md describes sketches that no longer
-  exist in `orm/book/` (keep it as the method, say so).
-- [ ] **4. The book PDF** rebuilt (`book.py --book orm book`) after the read-through, and
-  `book.py --book orm list` showing it fresh.
+  exist in `orm/book/` (keep it as the method, say so). *Done:* the crate documentation covers
+  the three parts, the `Table` documentation has a relations table (`cargo doc` clean),
+  SKETCHES.md opens by saying no sketch remains, and orm/README.md's status is current.
+- [x] **4. The book PDF** rebuilt (`book.py --book orm book`) after the read-through, and
+  `book.py --book orm list` showing it fresh. *Done:* 312 pages; the main book's PDF was rebuilt
+  too (270 pages), since its Chapter 0 changed (the Rust version).
 - [ ] **5. All gates**, both books; then ask the user about merging `shelf` into `main`, and after
   the merge run the gates on `main` and update the status lines (this file, orm/CLAUDE.md, the
-  root CLAUDE.md and PLAN.md).
+  root CLAUDE.md and PLAN.md). *In progress:* every gate green on `shelf` after steps 1–4 (fmt,
+  both clippy runs, 175 workspace tests, the tool's tests, 156 main-book and 141 shelf-book
+  examples run); `main` has no commit that `shelf` lacks, so the merge is a fast-forward. Waiting
+  for the user's go-ahead to commit and merge.

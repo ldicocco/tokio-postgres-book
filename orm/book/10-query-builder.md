@@ -314,9 +314,10 @@ Product::VERSION             Column("\"version\"")
 <Product as Table>::VERSION  Some("\"version\"")
 ```
 
-This is why shelf's generated and generic code never writes `M::VERSION` or `Self::TABLE`: it
-writes `<M as Table>::VERSION`, which means the trait's constant whatever the user's fields are
-called. A field named `table`, `columns` or `find` is then harmless.
+This is why the code shelf generates never writes `Product::VERSION` or `Self::TABLE`: it writes
+`<Product as ::shelf::Table>::VERSION`, which means the trait's constant whatever the user's
+fields are called. A field named `table`, `columns` or `find` is then harmless. (shelf's generic
+code may write `M::VERSION`: a type parameter has no inherent constants to shadow the trait's.)
 
 > **Macro lens:** the derive names each constant with `format_ident!("{}", …, span =
 > ident.span())`, so the name carries the field's span. That does not move every error to the
@@ -721,13 +722,13 @@ $6 int8
 $7 int8
 ```
 
-`LIKE`, `= ANY` and `BETWEEN` take the column's type, `@>` takes the array type (`_text` is
-`text[]`), and `LIMIT` and `OFFSET` take `int8`, which is why `limit` and `offset` take an
+`LIKE` and `BETWEEN` take the column's type, `= ANY` an array of it, and `@>` the array column's
+own type (`_text` is `text[]`), and `LIMIT` and `OFFSET` take `int8`, which is why `limit` and `offset` take an
 `i64`. Against the domain column `sku`, both `LIKE $1` and `= ANY($2)` typed the parameter as
 the base type, `text`, and `_text`: comparisons look through a domain. That is unlike an `INSERT`
 or a `SET col = $n`, which type it as the domain itself and refuse a `String` (Chapter 8,
-§8.2), and it is why the capstone's `Product::SKU.eq(sku)` takes stockroom's `Sku` and a `&str`
-alike.
+§8.2), and it is why the capstone's `Product::SKU.eq(sku)` can send stockroom's `Sku`, whose
+`accepts` takes `text` as well as the domain.
 
 ## 10.4 Owned values
 
@@ -1705,7 +1706,7 @@ a fixed statement would have to anticipate.
 - `#[derive(Table)]` generates an inherent constant per column, `Product::PRICE_CENTS:
   Column<Product, i64>`, as visible as its field; `T` is what the column holds (`try_from`'s
   source type, `serde_json::Value` for `json`). An inherent constant shadows a trait constant, so
-  shelf's code names `<M as Table>::VERSION` in full.
+  the code shelf generates names `<Product as ::shelf::Table>::VERSION` in full.
 - `PhantomData<fn() -> (M, T)>` makes the column carry two types at no size, and keeps it `Send`,
   `Sync` and `Copy` whatever they are.
 - A condition takes `impl Value<T>`: the column's type, a reference to it, `&str` for text, a

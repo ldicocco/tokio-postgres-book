@@ -93,7 +93,8 @@ sealed trait in a minor release without breaking anyone, and tokio-postgres did,
 The price is paid by crates like shelf, which need one trait for all four types.
 
 So shelf defines its own. It needs few methods: something that prepares (from a cache when there
-is one), and the four ways to run a prepared statement it uses. Everything else a connection
+is one), and the ways it runs a prepared statement: `query`, `query_one`, `query_opt` and
+`execute` here, `query_raw` and `copy_in` for Chapter 12. Everything else a connection
 can do (`batch_execute`, `simple_query`, starting a transaction, `LISTEN`) stays on the
 connection, where the program already has it.
 
@@ -336,8 +337,8 @@ executor!(
 
 [orm/shelf/src/executor.rs](../shelf/src/executor.rs)
 
-The deadpool impls sit behind the default feature `deadpool`, so a program without a pool
-does not compile deadpool. `prepare_uncached` names the target type's `prepare` explicitly,
+The deadpool impls sit behind the default feature `deadpool`, so a program without a pool can
+leave deadpool out with `default-features = false`. `prepare_uncached` names the target type's `prepare` explicitly,
 `<$target>::prepare(self, sql)`: on a deadpool connection, `self.prepare(sql)` would find the
 trait's own `prepare` first and use the cache.
 
@@ -370,7 +371,8 @@ helpers needed `&**object`, because they took tokio-postgres's `GenericClient`; 
 the pooled connection itself.
 
 The trait is not sealed. A wrapper that counts or times what passes through it implements it in a
-few lines per method (Exercise 1), and Chapter 11 counts round trips with one.
+few lines per method (Exercise 1), and Chapter 11 counts the statements an N+1 loop sends with
+one.
 
 ## 7.3 Three ways to send a statement
 
@@ -390,7 +392,8 @@ A statement reaches PostgreSQL in one of three ways, and the difference is round
 
 This program times each through lagproxy, which adds 5 ms each way, and counts the statements
 each leaves open on the session. All three use the same connection, so they read the same
-temporary table: `&**object` is the plain `Client` inside the pooled one.
+temporary table: `client`, the pooled connection coerced to `&tokio_postgres::Client` (the
+same as `&**object`), is the plain `Client` inside it.
 
 <!-- check: needs=lagproxy -->
 ```rust

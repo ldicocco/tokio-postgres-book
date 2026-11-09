@@ -116,10 +116,12 @@ in the same order.
 
 The struct may borrow. `params()` returns references to its fields, `&self.sku` and
 `&self.price_cents`, and `insert` takes `&self`, so a `NewProduct<'a>` built from a request's
-`&str`s is written without copying them. What it may not have is a type parameter: the
-statement is a constant built from the model's constants, and §6.5 showed that such a constant
-cannot be written in a generic impl. A lifetime is not a problem, because nothing in the
-statement mentions it.
+`&str`s is written without copying them. What it may not have is a type parameter. Its
+statement is a constant joined from the model's constants, and §6.5 showed that such a constant
+cannot mention a generic impl's parameters. A parameter that appeared only in the fields would
+join fine, but the derive refuses type parameters outright rather than tell the two cases apart:
+an `Insert` struct mirrors one table's columns, whose types are known. A lifetime is not a
+problem, because nothing in the statement mentions it.
 
 `insert` itself is a provided method of the `Insert` trait, two lines on top of Chapter 5's
 `fetch_one`:
@@ -269,7 +271,7 @@ the model marks each one `generated`:
 | `id bigint GENERATED ALWAYS AS IDENTITY` | the next value of the column's sequence | the identity |
 | `created_at timestamptz DEFAULT now()` | the transaction's start time | `now()` |
 
-`generated` tells Chapter 6's `update` not to write the column; the `Insert` struct leaves it
+`generated` tells `Table`'s `update` (§8.3) not to write the column; the `Insert` struct leaves it
 out simply by not having the field. `RETURNING` reads the values back with the rest of the row:
 
 ```rust
@@ -1043,7 +1045,7 @@ The rest of `written`, for a model with a `version`, is Chapter 9's.
 - **Counters and expressions.** `SET stock = stock - 1` computes from the row's current value;
   `update` writes the value you hold, which may be stale.
 - **Bulk loads.** One `insert` per row costs a round trip per row; Chapter 12's `insert_many`
-  and `copy_in` cost one per batch.
+  costs one per batch, and `copy_in` two.
 - **Several outcomes per row.** Inserting, updating and deleting from one source by conditions
   is what `MERGE` is for.
 

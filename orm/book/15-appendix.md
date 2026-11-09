@@ -35,7 +35,7 @@ owner, the derive that reports its mistakes (Chapter 6, "Who reports a mistake")
 | `rename = "col"` | `FromRow`, `Insert`, `Patch` | The column `col`; overrides `rename_all` | 4 |
 | `skip` | `FromRow`, `Insert`, `Patch` | Not a column: read as `Default::default()`, never written | 4 |
 | `flatten` | `FromRow` | A nested `FromRow` struct, read from the same row; refused in a `Table` | 4, 6 |
-| `json` | `FromRow`, `Insert` | Read and write a `json`/`jsonb` column through serde; an SQL `NULL` reads as JSON `null`. A `Patch` refuses it: write the field as `Option<Json<T>>` or `Option<serde_json::Value>` | 4, 8, 9 |
+| `json` | `FromRow`, `Insert` | Read and write a `json`/`jsonb` column through serde; an SQL `NULL` reads as JSON `null`. A `Patch` refuses it: write the field as `Option<tokio_postgres::types::Json<T>>` or `Option<serde_json::Value>` | 4, 8, 9 |
 | `try_from = S` (or `"S"`) | `FromRow` | Read an `S`, then convert with `TryFrom` | 4 |
 | `primary_key` | `Table` | Part of the key (required on at least one field); several make a composite key, a tuple in field order | 6 |
 | `generated` | `Table` | The database fills it (`uuidv7()`, `now()`, an identity, a generated column): `update` never writes it | 6, 8 |
@@ -374,8 +374,8 @@ it.
 | Writes | `new.insert(&db)`, `new.upsert(&db)` | `M` with its defaults | 8 |
 | | `model.update(&db)`, `model.delete(&db)`, `M::delete_by_key(&db, &key)` | `M`; `()`; `NotFound` for no row, `Stale` for a version | 8, 9 |
 | | `patch.apply(&db, &key)` | `M`, or `Stale`, or `NotFound` | 9 |
-| Queries | `M::query().filter(…).order_by(…).limit(n).offset(n)` | a `Query<M>`: `.all`, `.first`, `.count`, `.exists`, `.stream`; `.sql()` and `.params()` | 10 |
-| | `M::COL.eq(v)` … `between`, `any`, `like`, `is_null`, `contains`; `a.and(b)`, `a.or(b)`, `!a`; `.after(M::COL, v)` | conditions on `M` | 10 |
+| Queries | `M::query().filter(…).order_by(…).limit(n).offset(n)`, `.after(M::COL, v)` for keyset paging | a `Query<M>`: `.all`, `.first`, `.count`, `.exists`, `.stream`; `.sql()` and `.params()` | 10 |
+| | `M::COL.eq(v)` … `between`, `any`, `like`, `is_null`, `contains`; `a.and(b)`, `a.or(b)`, `!a` | conditions on `M` | 10 |
 | | `Expr::raw(sql).bind(v)` | a condition in SQL, renumbered | 10 |
 | Relations | `parent.children(&db)`, `Parent::load_children(&db, &parents)` | `Vec<C>`; `Vec<Vec<C>>` aligned with `parents` | 11 |
 | | `child.parent(&db)`, `Child::load_parent(&db, &children)` | `P` (or `Option<P>`); `HashMap<Key, P>` | 11 |
@@ -427,7 +427,7 @@ And diesel, whose query builder Chapter 10 compared, with diesel-async for async
 The differences that matter more than syntax: shelf writes its everyday SQL at compile time and
 shows it as constants; it checks a model against the real database at startup rather than at
 compile time; it never hides a round trip; and it is PostgreSQL only, so it uses `= ANY`, `unnest`,
-binary COPY and the catalog directly (Chapter 0, §0.2).
+binary COPY and the catalog directly (Chapter 0, §0.1).
 
 ## E. Glossary
 
@@ -484,7 +484,8 @@ column, rather than skipping rows with `OFFSET` (Chapter 10; main book §9.6).
 a call with `&db` (Chapter 11).
 
 **Loader.** A relation method that takes a slice of rows and loads what they relate to in one query:
-`Order::load_lines`, `OrderLine::load_order` (Chapter 11).
+`Order::load_lines`, `OrderLine::load_order`, generated around shelf's `load_children` and
+`load_parents` (Chapter 11).
 
 **Model.** A `FromRow` struct that also knows its table, its key and its columns: `#[derive(Table)]`
 (Chapter 6).
@@ -497,11 +498,11 @@ once; it borrows the executor it reads from (Chapter 12).
 
 **On-unimplemented message.** `#[diagnostic::on_unimplemented]` on a trait: the compiler's message
 and label when a type does not implement it, stable since Rust 1.78. shelf uses it on `FromColumn`,
-`Value`, `Condition`, `ForeignKey` and `Table` (Chapters 4, 10, 11).
+`Value`, `Condition`, `ForeignKey` and `Table` (Chapters 4, 8, 10, 11).
 
 **Orphan rule.** A trait impl must have the trait or the type local to the crate. It forbids `impl
 TryFrom<&Row> for (A, B)` outside tokio-postgres (Chapter 1) and `impl From<shelf::Error> for
-AppError` in the capstone (Chapter 14).
+AppError` in the capstone (Chapters 7, 14).
 
 **Patch.** A struct of `Option` fields describing a partial update; `Option<Option<T>>` for a
 nullable column (Chapter 9).
@@ -558,7 +559,7 @@ catalog, every mismatch at once (Chapter 13).
   compared; [trybuild](https://docs.rs/trybuild/1.0.122/trybuild/);
   [cargo-expand](https://github.com/dtolnay/cargo-expand).
 - **Practice**: David Tolnay's [proc-macro workshop](https://github.com/dtolnay/proc-macro-workshop),
-  five derive and attribute macros to build, with tests.
+  five procedural macros to build, with tests.
 - **`PhantomData` and variance**: the Rustonomicon's
   [PhantomData](https://doc.rust-lang.org/nomicon/phantom-data.html) page.
 - **The other crates**: [diesel's guides](https://diesel.rs/guides/),
