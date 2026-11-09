@@ -22,7 +22,7 @@ writing output from memory. This file lists only what differs or is added.
 - **Every chapter is sketched** (2026-11-07): `orm/book/NN-*.md` holds each chapter's sketch
   (status `sketch`), in the format of [SKETCHES.md](SKETCHES.md), and the book PDF
   (`orm/book/shelf-book.pdf`) contains them.
-- **Chapters 0–3 are written** (2026-11-09), ahead of S1b at the user's request: 1–3 are
+- **Chapters 0–4 are written** (2026-11-09), ahead of S1b at the user's request: 1–4 are
   `current`, and 0 is a `draft` until its §0.3 (the API in ten lines) can run after S1c
   (PLAN.md §10). The other chapters are still sketches.
 - **Next: phase S1b, the model.** PLAN.md §13 is its checklist; a new session starts there.
@@ -119,7 +119,7 @@ The root list applies, plus:
   and gives each test a schema `t_<uuidv7>` (on the connection's `search_path`), dropped
   afterwards.
 
-## Verified facts (S0, S1a, Chapters 0–3)
+## Verified facts (S0, S1a, Chapters 0–4)
 
 - syn 3.0.9's derive types have the same shape as syn 2's (`DeriveInput`, `Data`, `Fields`),
   except `Field`: `mutability` became `modifiers: FieldModifiers`, and `default` is new.
@@ -145,3 +145,17 @@ The root list applies, plus:
   the same way: `RUSTC_BOOTSTRAP=1 cargo rustc -p shelf-playground --example NAME
   --profile=check -- -Zunpretty=expanded`.
 - `book.py` ignores fenced blocks inside blockquotes: never put a runnable block in a callout.
+- `parse_nested_meta` stops at the first error inside one attribute, so shelf reports at most
+  one parse error per `#[shelf(…)]`; darling 0.24.1 goes on (PLAN.md §12 #25).
+- `#[diagnostic::on_unimplemented]` was stabilized in Rust 1.78.0 (the release notes in the
+  toolchain's `share/doc/rust/html/releases.md`).
+- A bound on a concrete type in a derive's `where` clause is reported at the derive's name, as
+  the supertrait, without `FromColumn`'s message (PLAN.md §12 #24): keep bounds for generic
+  types only.
+- `#[shelf(json)]` on `Option<T>` fails on an SQL `NULL` (PLAN.md §12 #26).
+- The sources of darling 0.24.1 and sqlx 0.9.0 (sqlx-core, sqlx-macros-core, sqlx-postgres)
+  are in `~/.cargo/registry/src/`; quote their behaviour from there.
+- **Probing compiler errors**: a scratch workspace with a proc-macro crate and a user crate that
+  depends on shelf by path (`shelf = { path = "…/orm/shelf" }`) builds with `cargo build
+  --offline`; run cargo from the scratch workspace's root, so that paths in the errors read
+  `user/src/bin/NAME.rs`.

@@ -14,8 +14,8 @@ Status: **Phases S0 (scaffold) and S1a (the mapping) done on 2026-11-07**, on th
 `shelf`. `#[derive(FromRow)]` is complete (§4.0): attributes, errors at the right tokens,
 generics, tuples, one check per statement, and the `fetch_*` helpers, with expansion, UI and
 integration tests and a benchmark. Every chapter has a **sketch** in its place
-([SKETCHES.md](SKETCHES.md)). **Chapters 0–3 were written on 2026-11-09**, ahead of S1b at the
-user's request (§10): Chapters 1–3 are `current`, and Chapter 0 is a `draft` until its §0.3 can
+([SKETCHES.md](SKETCHES.md)). **Chapters 0–4 were written on 2026-11-09**, ahead of S1b at the
+user's request (§10): Chapters 1–4 are `current`, and Chapter 0 is a `draft` until its §0.3 can
 run (after S1c). The book PDF, `orm/book/shelf-book.pdf`, shows the written chapters and the
 sketches. The next phase is S1b, the model (§9, and §13 step by step).
 
@@ -567,7 +567,7 @@ as in the main book, so that every excerpt quotes real code.
 | **S1b. shelf: the model** | `Table`, `Insert` and `Patch`; `Executor` with the `deadpool` feature; `shelf::Error`; CRUD and upsert; `version` and `updated_at`; the `Patch` design chosen by measurement | The gates pass; the statement-strategy and `Patch` measurements are in §12 |
 | **S1c. shelf: queries and relations** | The query builder, relations, `insert_many` and COPY, streams, and `verify` | The gates pass; the N+1 and bulk tables are in §12; the query builder's compile errors have UI tests |
 | **S2. stockroom-shelf** | The capstone app and its tests | The gates pass; the ported routes give the same responses as stockroom's |
-| **S3a. Part I** (Chapters 0–3 written 2026-11-09, ahead of S1b) | Chapters 0–5 | `book.py --book orm check` passes, including excerpts and links; the chapters are `current` |
+| **S3a. Part I** (Chapters 0–4 written 2026-11-09, ahead of S1b) | Chapters 0–5 | `book.py --book orm check` passes, including excerpts and links; the chapters are `current` |
 | **S3b. Part II** | Chapters 6–9 | The same |
 | **S3c. Part III** | Chapters 10–14 and the appendix | The same |
 | **S4. Polish and merge** | The book PDF, a read-through, a coverage audit against §5, and merging `shelf` into `main` | `book.py --book orm list` shows every chapter `current` and the PDF fresh |
@@ -592,7 +592,10 @@ as in the main book, so that every excerpt quotes real code.
 | SQL for model CRUD | literals generated at compile time; `LazyLock` where a literal cannot be built | building SQL at run time on every call |
 | The capstone | a port of part of stockroom, reusing the `stockroom` crate | a new domain |
 | Chapters not written yet | a sketch in each chapter's place, in the PDF (as *Decisions in the Loop* does; requested 2026-11-07) | sketches in a separate document; planned chapters left out |
-| Writing Chapters 0–3 before S1b | done on 2026-11-09, at the user's request: they quote only what S1a built (`FromRow`, the tuples, `fetch_*`, `pretty`), and `book.py excerpts` flags any drift when S1b changes those files | waiting for S1b–S2, as §9 orders |
+| Writing Chapters 0–4 before S1b | done on 2026-11-09, at the user's request: they quote only what S1a built (`FromRow`, the tuples, `fetch_*`, `pretty`, and for Chapter 4 `attrs.rs`, `case.rs`, `generics.rs`, `FromColumn` and the UI tests), and `book.py excerpts` flags any drift when S1b changes those files. S1b's `table` key changes what Chapter 4 says about it (§4.2, "One namespace") and `unknown_attributes.stderr` | waiting for S1b–S2, as §9 orders |
+| An unreadable field type is reported twice (Chapter 4, §4.5–4.6) | kept: once per generated use (`column`, `get`), each in `FromColumn`'s words at the field. Bounding concrete field types in the `where` clause reports it once, but at the derive's name and in the driver's words (§12 #24) | one bound site per field |
+| Two fields that read the same column | allowed: reading one column twice is odd but legal (a `jsonb` as a typed value and as `serde_json::Value`). The check is Chapter 4's Exercise 2 | refusing it in the derive |
+| darling in Chapter 4 | shelf's parser rewritten in darling 0.24.1 in a scratch probe, shown as an illustration with the errors it produced (§12 #25); darling is not a dependency | none |
 | Chapter 0's §0.3 (the API in ten lines) | the target design as a `~~~rust` illustration, marked as such; it becomes a runnable program after S1c, and Chapter 0 stays `draft` until then | showing only the mapping |
 | Where the comparison with other crates lives | a short table in §0.2 (who writes the SQL, when a mapping mistake is caught), toasty in prose; the appendix's phrasebook maps API names | the full table in the appendix |
 | Chapter 1's fetch helpers | the simple form (`query`, then map); shelf's prepare-first version is described and left to Chapter 5 | preparing first already in Chapter 1 |
@@ -618,7 +621,12 @@ as in the main book, so that every excerpt quotes real code.
   columns. Probe the trait design before Chapter 10.
 - **Nullability is not in a row description.** `verify` needs the catalog: check that 0.7.18's
   `Column` exposes the table OID and column number.
-- **Size.** 15 chapters and an appendix. Write and verify one chapter at a time.
+- **Size.** 15 chapters and an appendix. Write and verify one chapter at a time. Chapter 4 runs
+  to about 1,780 lines, most of it programs and captured compiler output, against §7's 600–1,000.
+- **`#[shelf(json)]` and SQL NULL** (§12 #26): on an `Option<T>` field, an SQL `NULL` fails with
+  `Mapping::Null`, whose advice ("read it into an Option") does not fit. Decide in S1b or S1c:
+  a `json(nullable)` key as sqlx has, or a message for this case. Chapter 4 documents the
+  current behaviour as a pitfall, and Chapter 1 quotes the message.
 
 ---
 
@@ -651,6 +659,11 @@ code, and tagged with the chapter where it belongs.
 | 20 | **quote! pastes a `usize` with its suffix** (`columns . 1usize`), which syn refuses as a tuple index ("expected unsuffixed integer"); `syn::Index::from(n)` pastes `1`. Hence `Index` in from_row.rs. | 3 |
 | 21 | **sqlx 0.9, from its sources** (sqlx-core, sqlx-macros-core, sqlx-postgres 0.9.0): `#[derive(FromRow)]` is generic over `R: Row` with a `Decode` and a `Type` bound per field and reads each field with `__row.try_get("name")` per row; `PgRow` resolves a name through a `HashMap<UStr, usize>` the statement carries; it strips `r#` with `trim_start_matches`; tuples get `FromRow` for 1–16 elements, one macro invocation per size. SeaORM 2.0.4 depends on sqlx 0.9.0. | 1–3 |
 | 22 | **`book.py` does not see fenced blocks inside a blockquote** (`FENCE_OPEN` wants the fence at the start of a line), so a runnable program inside a callout would never be compiled or run. Keep runnable blocks outside callouts. (A tooling finding; no chapter.) | — |
+| 23 | **Forgetting the `#[derive(FromRow)]` gives the same error as forgetting `attributes(shelf)`**: "cannot find attribute `shelf` in this scope", with the note "`shelf` is in scope, but it is a crate, not an attribute" (rustc 1.99.1, probes in the scratchpad, the user crate depending on shelf). When the probe's own proc-macro crate, a direct dependency, had another derive declaring `shelf`, rustc instead noted "`shelf` is an attribute that can be used by the derive macro `DarlingRow`, you might be missing a `derive` attribute"; with shelf, whose derive is re-exported, it does not. | 4 |
+| 24 | **A bound on a concrete field type in a derive's `where` clause** (`where std::time::Instant: ::shelf::FromColumn`, written by a probe derive) is reported once, but **at the derive's name**, not at the field, and **as the supertrait** ("the trait bound `Instant: …FromSqlOwned` is not satisfied"), without `FromColumn`'s `on_unimplemented` message. The same clause written by hand errors at the predicate, also as the supertrait. Hence `generics.rs` bounds only generic types, and an unreadable type is reported twice, at the field, in shelf's words (§10). | 4 |
+| 25 | **Errors per attribute: syn stops, darling goes on.** `parse_nested_meta` returns at the closure's first error (syn 3.0.9, `meta.rs`: `logic(…)?`), so shelf reports at most one parse error per `#[shelf(…)]`; `#[shelf(renamed = "x", skip = 1)]` reports only `renamed`. `meta.error` spans from the key to the last token read (syn keeps a start and an end span and puts them on `compile_error!`'s path and braces). darling 0.24.1 (on syn 3; shelf's parser rewritten in a probe) reports both errors of such an attribute, suggests ("Unknown field: `renamed`. Did you mean `rename`?", default feature `suggestions`), lists enum values ("Unknown value: `kebab-case`. Available values: …"), and words the rest its own way ("Duplicate field `rename`", "Unexpected type `bool`" for `skip = true`); its `SpannedValue` spans the value, not the key. | 4 |
+| 26 | **`#[shelf(json)]` on an `Option<T>` field reads `Json<Option<T>>`**: a JSON `null` gives `None`, but an SQL `NULL` fails with `Mapping::Null` ("… is NULL; read it into an Option", misleading here), because postgres-types 0.2.14's `Json<T>` keeps the default `from_sql_null` (`WasNull`) and only `Option<T>` overrides it. `Option<Json<T>>` without the attribute reads an SQL `NULL` as `None`. sqlx 0.9 has `json(nullable)` for this (§11). | 4 |
+| 27 | **sqlx 0.9's attribute parsing, from sqlx-macros-core 0.9.0's source**: field keys `rename`, `try_from` (a quoted type only), `default`, `flatten`, `skip`, `json` and `json(nullable)`; the field closure has no branch for an unknown key; `parse_child_attributes(…).unwrap()` and `panic!` for impossible combinations, so a mistake in field attributes panics the derive; `flatten` + `try_from` and `json` + `try_from` are allowed (shelf refuses the latter); `rename_all` has seven cases (with `lowercase`, `UPPERCASE`, `kebab-case`); every field's type is bounded in the `where` clause (each bound mentions `R`). | 4 |
 
 ---
 

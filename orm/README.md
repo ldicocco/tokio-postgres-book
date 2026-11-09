@@ -52,7 +52,7 @@ python3 tools/book.py --book orm list        # chapter status
 | [Chapter 1 — Mapping rows by hand](book/01-mapping-by-hand.md) | The FromRow trait, reading by name or by index, NULL and nested structs, and the boilerplate a macro should write | current |
 | [Chapter 2 — Declarative macros](book/02-declarative-macros.md) | A macro_rules! that writes FromRow from a struct definition, tuple impls, $crate, and where declarative macros stop | current |
 | [Chapter 3 — The first derive macro](book/03-first-derive.md) | Proc-macro crates, TokenStream, syn and quote, the three-crate split, hygiene, and printing the expansion | current |
-| [Chapter 4 — Attributes, errors and generics](book/04-attributes.md) | #[shelf(…)] with parse_nested_meta, rename, skip, flatten, json and try_from, errors with spans, UI tests, generics | sketch |
+| [Chapter 4 — Attributes, errors and generics](book/04-attributes.md) | #[shelf(…)] with parse_nested_meta, rename, skip, flatten, json and try_from, errors with spans, UI tests, generics | current |
 | [Chapter 5 — Checking a statement once, not every row](book/05-column-indices.md) | Resolving columns and checking their types once per statement, measured against lookups by name | sketch |
 | [Chapter 6 — Tables: the model derive](book/06-tables.md) | #[derive(Table)], primary keys, column metadata and SQL written at compile time, find and all | sketch |
 | [Chapter 7 — The executor and shelf's errors](book/07-executor.md) | One trait over Client, Transaction and deadpool, statement strategies measured through lagproxy, and shelf::Error | sketch |

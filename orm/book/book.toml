@@ -56,7 +56,7 @@ id = "attributes"
 path = "04-attributes.md"
 title = "Chapter 4 — Attributes, errors and generics"
 summary = "#[shelf(…)] with parse_nested_meta, rename, skip, flatten, json and try_from, errors with spans, UI tests, generics"
-status = "sketch"
+status = "current"
 
 [[chapter]]
 id = "column-indices"
