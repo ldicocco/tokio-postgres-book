@@ -298,7 +298,9 @@ PostgreSQL, and the main-book chapter that taught that.
 
 ## 7. Chapter outline
 
-There are 15 chapters and an appendix, in three parts, at about 600–1,000 lines each. Each
+There are 15 chapters and an appendix, in three parts, at about 600–1,000 lines each. That is a
+guide, not a limit: a chapter whose material runs longer stays longer (decided 2026-11-09;
+Chapter 4 runs to about 1,780 lines). Each
 lists its sections, its side-by-side topic, its "In shelf" files, and its exercises. The titles
 are registered in [book/book.toml](book/book.toml).
 
@@ -621,8 +623,8 @@ as in the main book, so that every excerpt quotes real code.
   columns. Probe the trait design before Chapter 10.
 - **Nullability is not in a row description.** `verify` needs the catalog: check that 0.7.18's
   `Column` exposes the table OID and column number.
-- **Size.** 15 chapters and an appendix. Write and verify one chapter at a time. Chapter 4 runs
-  to about 1,780 lines, most of it programs and captured compiler output, against §7's 600–1,000.
+- **Size.** 15 chapters and an appendix. Write and verify one chapter at a time. Length follows
+  the material (§7): do not cut verified content to meet the guide.
 - **`#[shelf(json)]` and SQL NULL** (§12 #26): on an `Option<T>` field, an SQL `NULL` fails with
   `Mapping::Null`, whose advice ("read it into an Option") does not fit. Decide in S1b or S1c:
   a `json(nullable)` key as sqlx has, or a message for this case. Chapter 4 documents the

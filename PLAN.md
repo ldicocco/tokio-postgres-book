@@ -784,8 +784,9 @@ stockroom should change, change stockroom first, then rerun `excerpts`.
   is listening on it, and says so in its report.
 - **Version claims** must be checked on the 18.6 server before they go into a chapter:
   `ON_ERROR` and `REJECT_LIMIT`, `RETURNING old/new`, virtual generated columns, and `uuidv7()`.
-- **Size.** About 19 chapters of 700–1,100 lines each. Write and verify one chapter at a time,
-  never in batches without verification.
+- **Size.** About 19 chapters of 700–1,100 lines each, as a guide: a chapter whose material runs
+  longer stays longer (decided 2026-11-09). Write and verify one chapter at a time, never in
+  batches without verification.
 
 ## 12. Findings from building the software (material for the chapters)
 
