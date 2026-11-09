@@ -37,9 +37,13 @@ writing output from memory. This file lists only what differs or is added.
 - **Phase S3a (Part I) is done** (2026-11-09): Chapter 5 written, Chapter 0's §0.3 a runnable
   program, Chapters 0–5 `current`. PLAN.md §10 has its decisions (no `Columns` cache; duplicate
   column names), §12 #57–#62 its probes and measurements.
-- **Next: phase S3b, Chapters 6–9.** PLAN.md §13 is its checklist; a new session starts there,
-  after checking that no other session works in the repository (two did on 2026-11-09, and one
-  overwrote the other's file).
+- **Phase S3b (Part II) is done** (2026-11-09): Chapters 6–9 written, `current`. PLAN.md §10 has
+  its decisions (`flatten` in a `Table`, `DO NOTHING`, `json` on a `Patch`, the serde helper),
+  §12 #63–#68 its probes and measurements. The `Patch` derive's error for `json` now names the
+  wrapper types to use instead.
+- **Next: phase S3c, Chapters 10–14 and the appendix.** PLAN.md §13 is its checklist; a new
+  session starts there, after checking that no other session works in the repository (two did
+  on 2026-11-09, and one overwrote the other's file).
 
 ## Commands
 
@@ -155,7 +159,7 @@ The root list applies, plus:
   `#[path]`), so their databases are stockroom's: `stockroom_test_<uuid>`, cloned from
   `stockroom_template_<checksum>` and dropped at the end.
 
-## Verified facts (S0, S1a, Chapters 0–4, S1b, S1c, S2, S3a)
+## Verified facts (S0, S1a, Chapters 0–4, S1b, S1c, S2, S3a, S3b)
 
 - syn 3.0.9's derive types have the same shape as syn 2's (`DeriveInput`, `Data`, `Fields`),
   except `Field`: `mutability` became `modifiers: FieldModifiers`, and `default` is new.
@@ -253,3 +257,20 @@ The root list applies, plus:
 - **A row with a duplicated column name**: shelf and `Row::try_get` read the first, sqlx 0.9 the
   last; sqlx checks a type only for non-NULL values (§12 #61). tokio-postgres's per-row
   `accepts` turns a row read with another statement's positions into an error (§12 #62).
+- **An impl may write `async fn` for a trait method declared `-> impl Future + Send`**; the
+  compiler checks that impl's future, and clippy's `manual_async_fn` prefers it to an
+  `async move` body (§12 #65).
+- **Preparing a write checks less than it seems**: a `GENERATED ALWAYS` column named in an
+  `INSERT` fails at *Parse* (428C9), but an `ON CONFLICT` target with no matching unique index
+  prepares fine and fails when run (42P10, found while planning). An upsert that updates still
+  draws an identity value (§12 #66).
+- **Output that changes per session** breaks a captured `text` block: a temporary domain is
+  reported as `pg_temp_86.sku`, with a number per session. Put such objects in a named schema
+  that the program creates and drops (§12 #66).
+- **A `json` column in a `Patch`** takes a field of type `Option<tokio_postgres::types::Json<T>>`
+  or `Option<serde_json::Value>`, without the attribute, which the derive refuses (§10).
+- **serde reads `null` into `Option<Option<T>>` as `None`**, like an absent field; the one-line
+  `Option::<T>::deserialize(d).map(Some)` with `#[serde(default)]` tells them apart (serde_with
+  3.24.0's `serde_with::rust::double_option`, not a dependency; §12 #67).
+- **SeaORM 2.0.4 and diesel 2.3.14 sources are in `~/.cargo/registry/src/`**, beside sqlx 0.9.0
+  and darling 0.24.1: the side-by-sides quote them from there (§12 #68).

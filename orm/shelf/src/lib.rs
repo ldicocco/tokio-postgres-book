@@ -114,6 +114,9 @@ pub use shelf_macros::Insert;
 /// | `rename = "col"`, `skip` | As for `FromRow` |
 /// | `version` | Not a column to set: the version the patch was made against, required exactly when the model has a `version` |
 ///
+/// A `json` column needs no attribute here: write the field as
+/// `Option<tokio_postgres::types::Json<T>>` or `Option<serde_json::Value>`.
+///
 /// Every patch of a type sends one statement, with a flag beside each value; it is built once,
 /// at first use. The struct may borrow, but cannot have type parameters.
 pub use shelf_macros::Patch;

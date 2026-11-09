@@ -27,8 +27,11 @@ that S1c is built). **Phase S2 (the capstone) done on 2026-11-09** (§4.0d):
 ported routes answering as stockroom's do (one test suite run against both routers), each step
 probed or measured first (§12 #47–#56). **Phase S3a (Part I) done on 2026-11-09**: Chapter 5
 written (its open questions settled in §10 and §12 #57–#62), Chapter 0's §0.3 a runnable
-program, and Chapters 0–5 `current`. The book PDF, `orm/book/shelf-book.pdf`, shows the written
-chapters and the sketches. The next phase is S3b: Chapters 6–9 (§9, and §13 step by step).
+program, and Chapters 0–5 `current`. **Phase S3b (Part II) done on 2026-11-09**: Chapters 6–9
+written and `current` (41 runnable examples, four through lagproxy), their open questions settled
+in §10 and §12 #63–#68; a clearer error for `json` on a `Patch` field, with a test. The book PDF,
+`orm/book/shelf-book.pdf`, shows the written chapters and the sketches. The next phase is S3c:
+Chapters 10–14 and the appendix (§9, and §13 step by step).
 
 ---
 
@@ -216,7 +219,7 @@ The field attributes:
 | `rename = "col"` **(built, S1a)** | Read the column `col` |
 | `skip` **(built, S1a)** | Do not read; use `Default::default()` |
 | `flatten` **(built, S1a)** | A nested `FromRow` read from the same row |
-| `json` **(built, S1a)** | Read through `Json<T>`; an SQL `NULL` reads as JSON `null`. `Insert` and `update` write through it; a `Patch` cannot have `json` fields yet |
+| `json` **(built, S1a)** | Read through `Json<T>`; an SQL `NULL` reads as JSON `null`. `Insert` and `update` write through it. A `Patch` refuses the key and needs none: a field of type `Option<tokio_postgres::types::Json<T>>` or `Option<serde_json::Value>` writes JSON itself (settled in S3b, §10) |
 | `try_from = SqlType` **(built, S1a)** | Read `SqlType`, then `TryFrom` into the field. The type may also be quoted, as serde writes it |
 | `primary_key` **(built, S1b)** | Part of the key; several fields make a composite key (a tuple) |
 | `generated` **(built, S1b)** | The database fills it (`uuidv7()`, `now()`, identity): never written by shelf |
@@ -641,7 +644,7 @@ as in the main book, so that every excerpt quotes real code.
 | **S1c. shelf: queries and relations** (done 2026-11-09) | The query builder, relations, `insert_many` and COPY, streams, and `verify` | The gates pass; the N+1 and bulk tables are in §12; the query builder's compile errors have UI tests |
 | **S2. stockroom-shelf** (done 2026-11-09) | The capstone app and its tests | The gates pass; the ported routes give the same responses as stockroom's |
 | **S3a. Part I** (done 2026-11-09; Chapters 0–4 written ahead of S1b) | Chapters 0–5 | `book.py --book orm check` passes, including excerpts and links; the chapters are `current` |
-| **S3b. Part II** | Chapters 6–9 | The same |
+| **S3b. Part II** (done 2026-11-09) | Chapters 6–9 | The same |
 | **S3c. Part III** | Chapters 10–14 and the appendix | The same |
 | **S4. Polish and merge** | The book PDF, a read-through, a coverage audit against §5, and merging `shelf` into `main` | `book.py --book orm list` shows every chapter `current` and the PDF fresh |
 
@@ -675,9 +678,13 @@ as in the main book, so that every excerpt quotes real code.
 | SQL that names another type's table (S1b) | built at compile time by two `const fn`s in `__private` (§12 #32): no `LazyLock`, no dependency. `Insert` refuses a model that mentions its own type parameters | `LazyLock<String>` (§10's earlier default, which fails in the same generic case); repeating the table on the `New…` struct; the `const_format` crate |
 | Which derive reports an attribute's error (S1b) | every derive parses every key; each key has an owner in `attrs.rs` (`KEYS`), and only the owner reports its errors. Unknown keys and syntax mistakes go to `FromRow`, which every `Table` has; `Table` generates nothing for a struct `FromRow` refuses. A struct with both derives hears about each mistake once | every derive reporting everything (each mistake twice); one derive that knows the others (impossible: a derive does not see the `#[derive]` list, §12 #18) |
 | The `Table` trait (S1b) | `type Key` (the field's type, or a tuple in field order); consts `MODEL`, `TABLE` (quoted, schema-qualified), `COLUMNS`, `FIND`, `ALL` (ordered by the key), `COUNT`; `key(&self)` (clones the key fields), `key_params(&Key)`; provided `find` (`NotFound`), `find_opt`, `all`, `count`. `find` takes `&Key`, a composite one as `&(a, b)` of owned values. `count` lives here, not in the query builder | `LazyLock` SQL; keys as tuples of references |
-| What `Table` refuses (S1b) | a model without `table` or without a `primary_key`; `flatten` fields (a flattened struct's columns are not known at macro time); type parameters (the SQL names one table) | `FromRow` exposing its column list as a const, which a generic `flatten` could not have |
+| What `Table` refuses (S1b) | a model without `table` or without a `primary_key`; `flatten` fields (a flattened struct's columns are not known at macro time); type parameters (the SQL names one table). **`flatten` settled in S3b (Chapter 6, §6.2):** kept refused. `FromRow` could publish its column list as a constant for `Table` to join at compile time (§12 #32), but a trait constant must exist for every impl, and a generic `FromRow` that flattens `T` would join in a generic impl (E0401, captured for §6.5) | `FromRow` exposing its column list as a const, which a generic `flatten` could not have |
 | Writes (S1b, step 4) | `Insert` on a `New…` struct (`model = Product`): `INSERT … RETURNING` the model's columns, joined at compile time; the struct may borrow but not have type parameters, and `Insert` reports every key's error, being the only shelf derive on its struct. `update(&self)` writes every column that is neither key nor `generated` and returns the row (`UPDATE … RETURNING`; with nothing to write, it reads the row); `delete`, `delete_by_key`; zero rows is `NotFound`. An upsert's target is the fields marked `#[shelf(conflict)]`, and a separate `Upsert` trait exists only when there are some (`ON CONFLICT (…) DO UPDATE SET` every other column; with none, the key is set to itself so the row is still returned). `json` fields are written through `__private::Json`, a `#[repr(transparent)]` view of the field (`Json::from_ref`), so that parameters still borrow from the struct. `Table` carries `#[diagnostic::on_unimplemented]` for a `model` that is not one. Generated code spells primitives `::core::primitive::str` | an upsert target given as an argument; `DO NOTHING` (no row returned); boxed, owned parameters |
 | The `Patch` design (S1b, step 5) | (c), `col = CASE WHEN $f THEN $v ELSE col END`: one statement for every patch, NULLs included, domains typed as their base type (§12 #30, #33). Its statement numbers the key's parameters after its own, and the key's length is the model's, so it is built once, at first use, in a `LazyLock<String>` by a function in shelf from the model's constants: the case where `LazyLock` is the right tool | (a), a statement per shape; (b), `coalesce`, which cannot set NULL; `const fn`s that write `$n` numbers |
+| `ON CONFLICT DO NOTHING` (Chapter 8's open question, S3b) | no method: on a conflict it returns no row, so the method would return `Option<Model>` and `None` would not say which row was in the way; reading it takes a second query and a race. A `New…` struct with only its conflict key upserts with `SET key = excluded.key`, which returns the existing row in the same statement. Chapter 8's Exercise 1 writes `insert_if_absent` on the public constants | an `insert_if_absent` method returning `Option` |
+| `json` fields on a `Patch` (S3b, Chapter 9) | no key: a field of type `Option<tokio_postgres::types::Json<T>>` or `Option<serde_json::Value>` writes JSON through its own `ToSql`, as the capstone's `ProductPatch` already did; the derive refuses `json` with that advice (the message changed in S3b; `tests/patch.rs` `a_json_column_is_patched_through_json`) | a `json` key that writes through `__private::Json`, which would need a view of an `Option<T>` as `Option<Json<T>>` |
+| Reading `null` into `Option<Option<T>>` (S3b, Chapter 9) | a one-line `deserialize_with` written in the chapter (`Option::<T>::deserialize(d).map(Some)` with `#[serde(default)]`); serde_with 3.24.0 ships it as `serde_with::rust::double_option`, named, not added | serde_with as a dependency of the playground; a derive attribute of shelf's |
+| `flatten` in a `Table` (S3b, Chapter 6) | refused, as in S1b; Chapter 6 §6.2 explains why (the names live in another item; a `FromRow` constant of its column list would be impossible for a generic struct that flattens `T`, E0401) | `FromRow::COLUMN_NAMES` joined at compile time |
 | Chapter 0's §0.3 (the API in ten lines) | a runnable program since S3a (2026-11-09), against temporary tables: `insert`, `find`, `copy_in`, the query builder (its SQL printed), `load_lines`, `verify`. The batch goes through `copy_in`, because `insert_many` refuses the array column `tags` (§12 #37); the bullets say so | the illustration it was until S1c; dropping `tags` to show `insert_many` |
 | Caching `Columns` per statement (Chapter 5's open question) | no: `resolve` runs on every call, prepared or cached. One `resolve` of 12 fields costs 262–268 ns, a localhost round trip 46–47 µs (§12 #59); a cache would need a map per connection keyed by statement and type, and staleness rules | a `Columns` cache beside deadpool's statement cache; `fetch_*` taking a `Statement` (Chapter 5's Exercise 1 does it by hand) |
 | `FromRow::Columns`' bounds | `Send + Sync + 'static`, kept: only `Send` is required by shelf's code (§12 #60); the others hold for any tuple of positions and promise what a cache would need | `Send` alone |
@@ -806,49 +813,72 @@ code, and tagged with the chapter where it belongs.
 | 60 | **Only `Send` on `FromRow::Columns` is load-bearing** (probe, 2026-11-09: each bound removed in turn, `cargo check -p shelf --all-targets`). Without `Send`, `fetch_all`, `fetch_one`, `fetch_opt`, `Table::find` and `all` and `insert_many` stop compiling: their `+ Send` futures hold a `T::Columns` across an `.await`. Without `Sync`, or without `'static`, everything still compiles. Kept as promises to generic code (a shareable, storable `Columns`, as a cache would need). | 5 |
 | 61 | **Two columns of one name**: tokio-postgres's `position` (so shelf's `column`, and `Row::try_get`) finds the first; sqlx-postgres 0.9.0 builds `column_names: HashMap<UStr, usize>` by inserting each column in order (`connection/resolve.rs`), so the last wins. sqlx-core 0.9.0's `Row::try_get` checks `T::compatible` only for a non-NULL value, so a type mismatch in an empty result or an all-NULL column is never reported. Neither library refuses the duplicate; shelf does not either (§10, Chapter 5's Exercise 2). | 5 |
 | 62 | **tokio-postgres's per-row `accepts` is the safety net for a misused `Columns`**: `from_row_at` with a row of another statement whose columns are swapped fails as `Mapping::Decode` with a `WrongType` cause; a row with fewer columns fails as `Decode` with no cause (`invalid column`). Without the per-row check, `String`'s `FromSql` would decode the eight bytes of `1299::int8` as `"\0\0\0\0\0\0\u{5}\u{13}"`, silently. `decode_error`'s comment said a type mismatch has no cause; corrected. (Chapter 5's Exercise 3.) | 5 |
+| 63 | **Chapter 6's compile errors, captured** (rustc 1.99.1, a scratch crate on shelf by path): `concat!("SELECT count(*) FROM ", Product::TABLE)` is "expected a literal" with the note that only literals can be passed to `concat!()`; a `for` loop in a `const fn` is E0015 ("cannot use `for` loop on `&[&str]` in constant functions"), which is why `join` uses `while`; the E0401 of #32 again, word for word, with rustc's help proposing a `let` binding (which cannot size an array). Without `ORDER BY`, a row updated in a small temp table comes back last from a sequential scan (Chapter 6's Exercise 3). | 6 |
+| 64 | **Chapter 7's measurements** (lagproxy at 5 ms each way, PG 18.6 on the same machine, Apple Silicon, 20 calls a strategy, three runs in debug and three in release): prepare-then-run 27.0–27.9 ms debug, 27.5–27.6 ms release; `prepare_cached` 13.7–14.2 / 13.6 ms after a first call of 26.4–28.8 ms; `query_typed` 13.6–13.9 / 13.7–13.9 ms. Statements left on the session (counted with `query_typed`, whose unnamed statement `pg_prepared_statements` does not list): 0 for a plain `Client`, 1 for the cache. `try_join!` of `find` and `count` on one plain `Client`: 26.0–27.9 ms against 53.5–56.6 ms in sequence (2 round trips against 4). Captured: implementing tokio-postgres's `GenericClient` for a wrapper is E0277 on `private::Sealed` plus E0046 listing 17 missing methods; `&*object` is E0277 "`ClientWrapper: Executor` is not satisfied". | 7 |
+| 65 | **An impl may write `async fn` for a trait method declared `-> impl Future<…> + Send`**: the compiler checks that impl's future for `Send` (Chapter 7's Exercise 2, a statement cache whose `prepare` takes a `Mutex` before and after an `.await`), and clippy's `manual_async_fn` flags the `fn … -> impl Future + Send { async move { … } }` form in an impl. Inside the trait's declaration, the `+ Send` must still be written (#28). | 7 |
+| 66 | **What PostgreSQL 18.6 checks when a write is prepared**: an `INSERT` naming a `GENERATED ALWAYS` identity column fails at *Parse* (428C9, with a DETAIL and the HINT `OVERRIDING SYSTEM VALUE`); an `ON CONFLICT` target that matches no unique index prepares fine and fails only when run (42P10), because the arbiter index is inferred when the statement is planned. An `ON CONFLICT DO UPDATE` that updates still draws an identity value (the next row's id skips one); `ON CONFLICT DO NOTHING RETURNING` returns no row on a conflict; `MERGE … RETURNING merge_action()` (PG 17+) works with `USING (VALUES ($1::text, $2::bigint))`, the casts typing the parameters. A domain parameter refused on the client names the domain with its schema (`pg_temp_86.sku` for a temporary domain, a number that changes per session; the chapter uses a named schema). An `UPDATE` that changes no value still moves the row's `ctid`. | 8 |
+| 67 | **Chapter 9's checks**: serde reads a JSON `null` into `Option<Option<T>>` as `None`, like an absent field; `Option::<T>::deserialize(d).map(Some)` with `#[serde(default)]` tells them apart. The three `Patch` designs again, 14 patches (7 shapes, 4 writing NULL) in a debug build through lagproxy: (a) 7 statements, 22.0–22.7 ms a patch; (b) 1, 0 of 4 NULLs, 15.6–16.4 ms; (c) 1, 15.5–15.8 ms. An empty patch on a versioned model still adds one to the version (and sets `updated_at`), since those are always in the `SET` list. A `bigint` version column with an `i64` field works, `Stale` included, past `i32::MAX`. `now()` is the same for two patches 20 ms apart in one transaction, and at least 20 ms apart outside one. | 9 |
+| 68 | **SeaORM 2.0.4, from its source** (for the side-by-sides of Chapters 6–9): `Entity::find_by_id(k).one(db)` adds `LIMIT $n` as a parameter; the dense entity format (`#[sea_orm::model]`) still needs `impl ActiveModelBehavior for ActiveModel {}`; `ActiveModel::insert` runs `before_save`/`after_save` around `exec_with_returning`; nothing in its update path handles a version column, and `update_many().set(…).filter(…).exec(db)` returns `UpdateResult { rows_affected }`. sqlx 0.9's `Executor` is implemented for `&Pool` and `&mut PgConnection` only, taken by value; a function running two queries on one generic executor takes `Acquire`. | 6–9 |
 
 ---
 
-## 13. Next steps: phase S3b, step by step
+## 13. Next steps: phase S3c, step by step
 
-**Resuming in a new session:** read this section first, then §7's Chapters 6–9, their sketches
-(`orm/book/06-tables.md` to `09-patch-and-versions.md`, each describing the design as built),
-§4.0b, §10's rows marked S1b, §12 #28–#33, and the written Chapters 1–5 for the voice. Each
-step is ticked when it is done and its gates are green, and a step in progress says how far it
-got. The work is on the branch `shelf` and may not be committed yet (`git status`); commit only
-when the user asks. **Check first that no other session is working in this repository** (§11):
-two sessions in one working tree overwrite each other's files.
+**Resuming in a new session:** read this section first, then §7's Chapters 10–14 and the
+appendix, their sketches (`orm/book/10-query-builder.md` to `15-appendix.md`, each describing the
+design as built), §4.0c and §4.0d, §10's rows marked S1c and S2, §12 #34–#56, and the written
+Chapters 6–9 for the voice. Each step is ticked when it is done and its gates are green, and a
+step in progress says how far it got. The work is on the branch `shelf` and may not be committed
+yet (`git status`); commit only when the user asks. **Check first that no other session is
+working in this repository** (§11): two sessions in one working tree overwrite each other's
+files.
 
-**Done before:** S0, S1a and the sketches (2026-11-07); Chapters 0–4 (2026-11-09); S1b, S1c
-and S2, the capstone (2026-11-09, §4.0b–§4.0d); S3a, Part I (2026-11-09): Chapter 5 written,
-Chapter 0's §0.3 runnable, Chapters 0–5 `current`. Open from earlier phases: a serde helper for
-`Option<Option<T>>` (Chapter 9: check what is current); `json` fields on a `Patch`; composite
-foreign keys in relations; an optional version on a `Patch` (Chapter 14's Exercise 2, §10).
+**Done before:** S0, S1a and the sketches (2026-11-07); Chapters 0–4, S1b, S1c, S2 (the
+capstone), S3a (Part I) and S3b (Part II), all on 2026-11-09: Chapters 0–9 `current`. Open from
+earlier phases: composite foreign keys in relations (Chapter 11's open question); an optional
+version on a `Patch` (Chapter 14's Exercise 2, §10).
 
-**S3b, Part II** (§9: Chapters 6–9 `current`, `book.py --book orm check` passing, excerpts and
-links included). For each chapter: settle its sketch's open questions (in §10 or §12), probe
-what is uncertain, write it in place of the sketch, `book.py --book orm fmt --chapter N` and
-`check --chapter N`, then set it `current`. Expansions come from `shelf_playground::pretty`,
-compiler errors from `orm/shelf/tests/ui/*.stderr`.
+**How S3b worked, to repeat:** compiler errors probed in a scratch workspace on shelf by path
+(orm/CLAUDE.md), pasted from the build; the third column of each side by side checked in the
+registry's sources (SeaORM 2.0.4, sqlx 0.9.0, diesel 2.3.14 are all there); timings as
+`needs=lagproxy` programs with relative assertions, then three runs by hand through a lagproxy
+started on a spare port for the ranges the text quotes; outputs captured with
+`cargo run -p shelf-playground --example shelf_chNN_KK` after `book.py --book orm extract`.
+Watch for output that changes per session (a temporary schema's name, `pg_temp_86`): use a named
+schema, created and dropped by the program. The playground gained `axum`, `bytes` and
+`postgres-types` in S3b.
 
-- [ ] **1. Chapter 6, *Tables: the model derive***: `#[derive(Table)]` (`shelf-codegen/src/table.rs`,
-  `sql.rs`, `shelf/src/table.rs`), SQL written at compile time with quoted identifiers, `find`,
-  `find_opt`, `all`, `count`, what `Table` refuses (UI test `table.rs`). Open: whether `flatten`
-  can join a model once `FromRow` knows its columns (decide, or make it an exercise).
-- [ ] **2. Chapter 7, *The executor and shelf's errors***: `Executor` (`shelf/src/executor.rs`,
-  §12 #28), the three statement strategies through lagproxy (§12 #29: a `needs=lagproxy`
-  example with a relative assertion), `shelf::Error` and an application's mapping (the
-  capstone's `app_error`, §12 #49). Its exercise, a statement cache for a plain `Client`, may
-  keep a `Columns` beside each statement (Chapter 5, §10).
-- [ ] **3. Chapter 8, *Writing rows***: `#[derive(Insert)]` and `Upsert` (`insert.rs`,
-  `write.rs`, the compile-time join, §12 #32), `update`, `delete`, `delete_by_key`, defaults
-  (`uuidv7()`, PG 18+), constraint errors. Open: whether `DO NOTHING` (an `Option`) earns a
-  method; `MERGE … RETURNING` (PG 17+) as the alternative, verified on the server.
-- [ ] **4. Chapter 9, *Partial updates and optimistic locking***: the three designs measured
-  (§12 #30, #33), `#[derive(Patch)]`, `version` and `Stale` in one round trip (§12 #31),
-  `updated_at`, ETag and `If-Match` in axum (driven with `oneshot`, never a port). Open: the
-  serde helper for `Option<Option<T>>` (check the crates' current versions), `json` fields on
-  a patch.
-- [ ] **5. Wrap-up:** all gates (both books); the book PDF rebuilt; the status lines in this
+**S3c, Part III** (§9: Chapters 10–14 and the appendix `current`, `book.py --book orm check`
+passing, excerpts and links included). For each chapter: settle its sketch's open questions (in
+§10 or §12), probe what is uncertain, write it in place of the sketch, `book.py --book orm fmt
+--chapter N` and `check --chapter N`, then set it `current`. Expansions come from
+`shelf_playground::pretty`, compiler errors from `orm/shelf/tests/ui/*.stderr` or a scratch
+build.
+
+- [ ] **1. Chapter 10, *A typed query builder***: `shelf/src/query/` (`column.rs`, `expr.rs`,
+  `mod.rs`, `render.rs`) and `shelf-codegen/src/columns.rs`; the value trait and its compile
+  errors (§12 #34, #35, #41, UI test `query.rs`); how PostgreSQL types the builder's parameters
+  (§12 #36). Third column: diesel 2.3.14. Open: whether the `$n` scanner of `Expr::raw` is built
+  step by step or shown finished.
+- [ ] **2. Chapter 11, *Relations without N+1***: `shelf-codegen/src/relations.rs`,
+  `shelf/src/relations.rs`; N+1 measured (`bench_relations`, §12 #42) and a `needs=lagproxy`
+  program; UI test `relations.rs`. Third column: SeaORM 2.0.4's loader (its README's "Smart
+  Entity Loader"). Open: composite foreign keys as an exercise.
+- [ ] **3. Chapter 12, *Bulk writes and streams***: `shelf/src/bulk.rs`, `shelf/src/stream.rs`;
+  `unnest` and its casts, COPY with the `INSERT`'s types and the guard for #789 (§12 #37, #38),
+  streams (§12 #39), the bulk measurements (§12 #44–#46). Open: the debug-build ratio for a
+  relative timing assertion.
+- [ ] **4. Chapter 13, *Trusting the mapping***: `shelf/src/verify.rs`, `orm/shelf/tests/`; what
+  the catalog says about NULLs (§12 #40), the cache that hides a migration (§12 #43), what one
+  suite against two routers covers (§12 #53); the expansion, UI and integration tests explained.
+  Open: whether Exercise 1 needs a trait object over models or a list of function pointers.
+- [ ] **5. Chapter 14, *Capstone***: `orm/stockroom-shelf` (§4.0d, §12 #47–#56; `line_for_line`,
+  #54; lines of code, #55). Open: whether its runnable examples drive stockroom-shelf from the
+  playground (a dependency on the capstone) or show it through excerpts and its tests; how much
+  of `place` to print.
+- [ ] **6. Appendix (15)**: the attribute reference, each derive's expansion (run shelf-codegen),
+  the phrasebook, the glossary, further reading. Open: where the phrasebook lives (here or
+  Chapter 0); one expansion per derive or every expansion test.
+- [ ] **7. Wrap-up:** all gates (both books); the book PDF rebuilt; the status lines in this
   file, orm/CLAUDE.md and the root CLAUDE.md; then replace this checklist with the next phase's
-  (§9: S3c, Chapters 10–14 and the appendix), and ask the user about a commit.
+  (§9: S4, polish and merge), and ask the user about a commit.

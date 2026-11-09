@@ -1646,10 +1646,13 @@ name = "shelf-playground"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
+ "bytes",
  "deadpool-postgres",
  "futures-util",
  "jiff",
  "playground",
+ "postgres-types",
  "prettyplease",
  "proc-macro2",
  "quote",

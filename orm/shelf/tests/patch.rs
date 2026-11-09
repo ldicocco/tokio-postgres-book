@@ -260,3 +260,50 @@ async fn a_patch_on_a_pooled_connection_is_prepared_once() {
     assert_eq!(object.statement_cache.size(), 1);
     assert_eq!(Product::find(&object, &1).await.unwrap().version, 4);
 }
+
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+struct Attributes {
+    colour: String,
+}
+
+#[derive(Debug, FromRow, Table)]
+#[shelf(table = "listings")]
+struct Listing {
+    #[shelf(primary_key)]
+    id: i64,
+    #[shelf(json)]
+    attributes: Attributes,
+}
+
+/// A `json` column in a patch: the field's type writes JSON itself, with no attribute.
+#[derive(Patch)]
+#[shelf(model = Listing)]
+struct ListingPatch {
+    attributes: Option<tokio_postgres::types::Json<Attributes>>,
+}
+
+#[tokio::test]
+async fn a_json_column_is_patched_through_json() {
+    let db = TestDb::new().await;
+    let client = db
+        .client_with(
+            r#"CREATE TABLE listings (id bigint PRIMARY KEY, attributes jsonb NOT NULL);
+               INSERT INTO listings VALUES (1, '{"colour": "red"}');"#,
+        )
+        .await;
+    let blue = Attributes {
+        colour: "blue".into(),
+    };
+    let listing = ListingPatch {
+        attributes: Some(tokio_postgres::types::Json(blue)),
+    }
+    .apply(&client, &1)
+    .await
+    .unwrap();
+    assert_eq!(listing.attributes.colour, "blue");
+    let unchanged = ListingPatch { attributes: None }
+        .apply(&client, &1)
+        .await
+        .unwrap();
+    assert_eq!(unchanged.attributes.colour, "blue");
+}

@@ -63,7 +63,6 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
         let attrs = FieldAttrs::parse(&field.attrs, Derive::Patch, &mut errors);
         let meaningless = [
             ("flatten", &attrs.flatten),
-            ("json", &attrs.json),
             ("primary_key", &attrs.primary_key),
             ("generated", &attrs.generated),
             ("updated_at", &attrs.updated_at),
@@ -76,6 +75,14 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
                     format!("`{name}` has no meaning on a Patch struct; it belongs on the model"),
                 ));
             }
+        }
+        if let Some(json) = &attrs.json {
+            errors.push(Error::new(
+                json.span,
+                "a Patch writes each value as it is, so `json` has no meaning here: for a json \
+                 column, write the field as `Option<tokio_postgres::types::Json<T>>` or \
+                 `Option<serde_json::Value>`",
+            ));
         }
         if let Some(try_from) = &attrs.try_from {
             errors.push(Error::new(

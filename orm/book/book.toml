@@ -72,28 +72,28 @@ id = "tables"
 path = "06-tables.md"
 title = "Chapter 6 — Tables: the model derive"
 summary = "#[derive(Table)], primary keys, column metadata and SQL written at compile time, find and all"
-status = "sketch"
+status = "current"
 
 [[chapter]]
 id = "executor"
 path = "07-executor.md"
 title = "Chapter 7 — The executor and shelf's errors"
 summary = "One trait over Client, Transaction and deadpool, statement strategies measured through lagproxy, and shelf::Error"
-status = "sketch"
+status = "current"
 
 [[chapter]]
 id = "writing"
 path = "08-writing.md"
 title = "Chapter 8 — Writing rows: insert, update, delete, upsert"
 summary = "#[derive(Insert)], database defaults, RETURNING the model, full updates, deletes and ON CONFLICT"
-status = "sketch"
+status = "current"
 
 [[chapter]]
 id = "patch-and-versions"
 path = "09-patch-and-versions.md"
 title = "Chapter 9 — Partial updates and optimistic locking"
 summary = "#[derive(Patch)] three ways, Option<Option<T>>, version columns and Stale, updated_at"
-status = "sketch"
+status = "current"
 
 # ── Part III — Queries and relations ─────────────────────────────────────────────────────
 

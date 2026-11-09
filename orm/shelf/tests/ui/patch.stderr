@@ -4,7 +4,7 @@ error: a Patch field is an `Option`: `None` leaves the column as it is and `Some
 18 |     sku: String,
    |          ^^^^^^
 
-error: `json` has no meaning on a Patch struct; it belongs on the model
+error: a Patch writes each value as it is, so `json` has no meaning here: for a json column, write the field as `Option<tokio_postgres::types::Json<T>>` or `Option<serde_json::Value>`
   --> tests/ui/patch.rs:19:13
    |
 19 |     #[shelf(json)]
