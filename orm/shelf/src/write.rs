@@ -45,7 +45,7 @@ pub trait Insert: Sync {
     }
 
     /// Inserts every row in one statement, and returns them as the model: one array per column,
-    /// sent through `unnest` (`INSERT … SELECT * FROM unnest($1::text[], …) RETURNING …`), so a
+    /// sent through `unnest` (`INSERT … SELECT unnest($1::text[]), … RETURNING …`), so a
     /// batch costs one round trip whatever its size, plus the preparing of two statements
     /// (cached by a deadpool connection). PostgreSQL returns the rows in the order it inserted
     /// them, which in practice is the slice's, though SQL does not promise it.

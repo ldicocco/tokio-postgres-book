@@ -41,9 +41,13 @@ writing output from memory. This file lists only what differs or is added.
   its decisions (`flatten` in a `Table`, `DO NOTHING`, `json` on a `Patch`, the serde helper),
   §12 #63–#68 its probes and measurements. The `Patch` derive's error for `json` now names the
   wrapper types to use instead.
-- **Next: phase S3c, Chapters 10–14 and the appendix.** PLAN.md §13 is its checklist; a new
-  session starts there, after checking that no other session works in the repository (two did
-  on 2026-11-09, and one overwrote the other's file).
+- **Phase S3c (Part III) is done** (2026-11-09): Chapters 10–14 and the appendix written, every
+  chapter `current`, 141 runnable examples. PLAN.md §10 has its decisions, §12 #69–#73 its probes
+  and measurements. Writing Chapter 12 found that `insert_many` broke on a composite column; it now
+  puts its `unnest`s in the select list (§12 #71), with a test.
+- **Next: phase S4, polish and merge.** PLAN.md §13 is its checklist; a new session starts there,
+  after checking that no other session works in the repository (two did on 2026-11-09, and one
+  overwrote the other's file).
 
 ## Commands
 
@@ -159,7 +163,7 @@ The root list applies, plus:
   `#[path]`), so their databases are stockroom's: `stockroom_test_<uuid>`, cloned from
   `stockroom_template_<checksum>` and dropped at the end.
 
-## Verified facts (S0, S1a, Chapters 0–4, S1b, S1c, S2, S3a, S3b)
+## Verified facts (S0, S1a, Chapters 0–4, S1b, S1c, S2, S3a, S3b, S3c)
 
 - syn 3.0.9's derive types have the same shape as syn 2's (`DeriveInput`, `Data`, `Fields`),
   except `Field`: `mutability` became `modifiers: FieldModifiers`, and `default` is new.
@@ -216,6 +220,9 @@ The root list applies, plus:
 - An inherent `async fn`'s future leaks its auto traits, so it is `Send` for a generic
   executor; clippy (`manual_async_fn`) prefers it to `-> impl Future + Send` outside traits.
   Inside a trait, keep `impl Future + Send` (§12 #28).
+- **`insert_many` puts its `unnest`s in the select list** (`SELECT unnest($1::…[]), …`): in
+  `FROM`, `unnest` expands a composite into its fields (§12 #71). A statement takes at most
+  65,535 parameters (the protocol counts them in 16 bits).
 - **`unnest` needs a cast per array, and the prepared single-row `INSERT` gives the right one**
   (a domain as the domain); an array column cannot go through `unnest` (§12 #37). **Preparing a
   `COPY` checks nothing**, not even the table, so the guard for #789 is the prepared `INSERT`
@@ -272,5 +279,10 @@ The root list applies, plus:
 - **serde reads `null` into `Option<Option<T>>` as `None`**, like an absent field; the one-line
   `Option::<T>::deserialize(d).map(Some)` with `#[serde(default)]` tells them apart (serde_with
   3.24.0's `serde_with::rust::double_option`, not a dependency; §12 #67).
+- **A cached statement after a migration** (S3c): dropping a column it names makes its next
+  execution fail with 42703 (PostgreSQL analyzes its text again); adding a column makes a cached
+  `SELECT *` fail with 0A000. Either way the client's description is the old one (§12 #72).
+- **Capturing a session** (S3c): `NO_COLOR=1` keeps tracing's colour codes out of a log, and a
+  panic's first line carries the thread id (`thread 'main' (25976639)`), which changes per run.
 - **SeaORM 2.0.4 and diesel 2.3.14 sources are in `~/.cargo/registry/src/`**, beside sqlx 0.9.0
   and darling 0.24.1: the side-by-sides quote them from there (§12 #68).

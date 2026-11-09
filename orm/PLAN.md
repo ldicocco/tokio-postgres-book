@@ -30,8 +30,13 @@ written (its open questions settled in §10 and §12 #57–#62), Chapter 0's §0
 program, and Chapters 0–5 `current`. **Phase S3b (Part II) done on 2026-11-09**: Chapters 6–9
 written and `current` (41 runnable examples, four through lagproxy), their open questions settled
 in §10 and §12 #63–#68; a clearer error for `json` on a `Patch` field, with a test. The book PDF,
-`orm/book/shelf-book.pdf`, shows the written chapters and the sketches. The next phase is S3c:
-Chapters 10–14 and the appendix (§9, and §13 step by step).
+`orm/book/shelf-book.pdf`, shows the written chapters and the sketches. **Phase S3c (Part III)
+done on 2026-11-09**: Chapters 10–14 and the appendix written and `current` (48 runnable examples
+more, 141 in all; Chapter 14 shows the capstone through excerpts, its tests and a real session),
+their open questions settled in §10 and §12 #69–#73. Writing Chapter 12 found a bug in
+`insert_many` (a composite column, §12 #71): fixed, tested, and the bulk and capstone measurements
+re-run. Every chapter is now `current`. The next phase is S4: polish and merge (§9, and §13 step
+by step).
 
 ---
 
@@ -154,7 +159,7 @@ S1c, every item of the target design does. §4.0 describes what S1a built, §4.0
 | `Expr<M>`, `Raw<M>`, `trait Condition<M>` | `query/expr.rs` | A tree of conditions (`and`, `or`, `!` through `std::ops::Not`) owning its values (`Box<dyn ToSql + Sync + Send>`); `Expr::raw(sql).bind(v)` for SQL the builder does not model, its `$1…` renumbered (a scanner that skips quoted text, dollar quotes and comments; a placeholder without a value panics when the raw SQL becomes a condition). `Condition<M>` is what `filter`, `and` and `or` take, with its own message for another model's condition (§12 #41) |
 | `Query<M>` | `query/mod.rs`, `query/render.rs` | `Table::query()`, then `filter` (several are ANDed), `order_by`, `limit`, `offset` (parameters), keyset `after(column, value)` (`"col" > $n`, ordered by it first); `all`, `first` (`LIMIT 1`), `count`, `exists` (both ignore order and paging), `stream`; `sql()` and `params()` show what is sent. Without `order_by`, key order. Rendered at each call; a deadpool connection caches each shape |
 | Relations | `shelf-codegen/src/relations.rs`, `shelf/src/relations.rs` | Container keys `has_many(Child, key = fk, as = name)` and `belongs_to(Parent, key = fk[, as = name])`, owned by `Table`, several per model. `has_many` adds `parent.name(&db)` and `Parent::load_name(&db, &parents) -> Vec<Vec<Child>>` (aligned with `parents`); `belongs_to` adds `child.name(&db)` (`Result<Parent>`, or `Result<Option<Parent>>` when the field is written `Option<…>`) and `Child::load_name(&db, &children) -> HashMap<Key, Parent>`; the name defaults to the model's in snake case. Each loader is one query through the builder (`= ANY($1)`) and groups in a `HashMap`. Single-column keys only (a composite key is refused for `has_many`). Calls spanned on the `key = …` tokens |
-| `insert_many`, `copy_in` | `shelf/src/bulk.rs`, `shelf-codegen/src/insert.rs` | Provided on `Insert`; the derive adds `COLUMNS`, `COPY` (joined at compile time) and `arrays(rows)`, one `Vec<&T>` per column. Both prepare the single-row `INSERT` first, for the column types and as the guard for #789 (§12 #37, #38). `insert_many`: `INSERT … SELECT * FROM unnest($1::"schema"."type"[], …) RETURNING …`; an array column is `Error::Unsupported`; no columns: `SELECT FROM generate_series`. `copy_in`: binary COPY with the `INSERT`'s types, returns the count |
+| `insert_many`, `copy_in` | `shelf/src/bulk.rs`, `shelf-codegen/src/insert.rs` | Provided on `Insert`; the derive adds `COLUMNS`, `COPY` (joined at compile time) and `arrays(rows)`, one `Vec<&T>` per column. Both prepare the single-row `INSERT` first, for the column types and as the guard for #789 (§12 #37, #38). `insert_many`: `INSERT … SELECT unnest($1::"schema"."type"[]), … RETURNING …` (the `unnest`s in the select list since S3c, so a composite stays whole, §12 #71); an array column is `Error::Unsupported`; no columns: `SELECT FROM generate_series`. `copy_in`: binary COPY with the `INSERT`'s types, returns the count |
 | Streams | `shelf/src/stream.rs` | `fetch_stream::<T>(&db, sql, params)` and `Query::stream(&db)` return `ModelStream<'a, T>`, a `Stream` of `Result<T, Error>`: resolved once from the statement, then each row as it arrives, over `query_raw`. It borrows the executor, so a pooled connection cannot go back to the pool mid-stream (UI test `stream.rs`) |
 | `verify::<M>(&db)` | `shelf/src/verify.rs` | Prepares `SELECT * FROM` the table without the statement cache (`Executor::prepare_uncached`, §12 #43), checks each field of `Table::FIELDS` (hidden: the column and the type it reads, `Field::new::<T>`), then asks `pg_attribute` which of the non-`Option` fields' columns can be NULL (tables only, not views). `Error::Schema { model, mismatches }`, every mismatch at once, in field order |
 | `Executor` | `shelf/src/executor.rs` | Gained `query_raw` (streams), `copy_in` (COPY) and `prepare_uncached` (a default, `prepare`; deadpool's types override it to skip the cache). It is not sealed: the relations test counts round trips with an executor of its own |
@@ -564,7 +569,7 @@ are registered in [book/book.toml](book/book.toml).
 
 **Chapter 12 — Bulk writes and streams**
 
-- 12.1 `insert_many`: one `INSERT … SELECT * FROM unnest($1::t[], …)` with one array per
+- 12.1 `insert_many`: one `INSERT … SELECT unnest($1::t[]), …` with one array per
   column, built by the derive, and casts for domains (main book §12 #1 and #4).
 - 12.2 Binary COPY from the derive: column types learnt from a prepared
   `SELECT … LIMIT 0`, then `BinaryCopyInWriter` (main book Chapter 10: the declared types are
@@ -645,7 +650,7 @@ as in the main book, so that every excerpt quotes real code.
 | **S2. stockroom-shelf** (done 2026-11-09) | The capstone app and its tests | The gates pass; the ported routes give the same responses as stockroom's |
 | **S3a. Part I** (done 2026-11-09; Chapters 0–4 written ahead of S1b) | Chapters 0–5 | `book.py --book orm check` passes, including excerpts and links; the chapters are `current` |
 | **S3b. Part II** (done 2026-11-09) | Chapters 6–9 | The same |
-| **S3c. Part III** | Chapters 10–14 and the appendix | The same |
+| **S3c. Part III** (done 2026-11-09) | Chapters 10–14 and the appendix | The same |
 | **S4. Polish and merge** | The book PDF, a read-through, a coverage audit against §5, and merging `shelf` into `main` | `book.py --book orm list` shows every chapter `current` and the PDF fresh |
 
 ---
@@ -709,6 +714,12 @@ as in the main book, so that every excerpt quotes real code.
 | `Stock.available` (S2) | `Option<i32>`, as the catalog has it (§12 #48) | `ALTER … SET NOT NULL` on stockroom's virtual column (a change to the main book's schema) |
 | `orders::get` and `place` (S2) | `get`: the order and its lines pipelined, then the store and the products pipelined, 2 round trips (the relation methods in sequence would take 3; raw SQL with joins and `FromRow`, 1, is the escape hatch Chapter 14.4 shows); `place` builds its response from the `RETURNING` rows, with no read-back (§12 #54) | the relation methods; stockroom's read-back |
 | The capstone's tests (S2) | stockroom's harness by `#[path]` (its template, its databases `stockroom_test_<uuid>`), one scenario run against both routers (`both`), the statement cache to show which handler answered, stockroom's oversell and deadlock tests on the port (§12 #53) | a harness of the port's own, in a schema per test (shelf's way) |
+| The `$n` scanner in Chapter 10 (S3c) | shown finished, in an excerpt of its unit test, after a stage program whose naive renumbering changes a string literal (`'was $5'`): every branch of the scanner is one case of the test, and building it step by step would be a lexer lesson | built step by step |
+| Composite foreign keys (Chapter 11's open question, S3c) | an exercise, not a feature: Chapter 11's Exercise 3 loads `stock_movements` for `stock (store_id, product_id)` with a raw fragment, `("store_id", "product_id") IN (SELECT * FROM unnest($1::int8[], $2::int8[]))`, grouped by the key tuple; shelf keeps refusing `has_many` on a composite key | a `has_many` that generates two arrays and the row comparison |
+| Where `insert_many`'s `unnest`s go (S3c, Chapter 12) | in the select list, `SELECT unnest($1::…[]), unnest($2::…[])`: a composite value stays whole there, and set-returning functions in a select list run in step (PG 10+); test `a_composite_column_goes_through_insert_many_whole` (§12 #71) | `SELECT * FROM unnest(…)` in `FROM`, S1c's form and pgload's, which expands a composite into its fields |
+| Chapter 12's timing assertion | a factor of ten for both `insert_many` and `copy_in` against the loop, on 10,000 rows in a debug build, where the measured factors are 50 and 125 (§12 #71) | the sketch's "at least ten times" for COPY only |
+| Chapter 13's Exercise 1 (its open question, S3c) | a `Vec` of boxed futures, `verify::<M>(db).boxed()` per model, polled with `join_all`: `Table` has associated constants and is not dyn-compatible, so there is no trait object of models; the list of futures is the list of models | a list of function pointers returning boxed futures; a `macro_rules!` that writes the `join!` |
+| Chapter 14's programs (its open questions, S3c) | none runnable, as in the main book's Chapter 18: the port shown through excerpts, its tests and `line_for_line`, a real session pasted (`migrate`, `seed`, `verify`, `serve`, three `curl`s), and the exercises' solutions in prose; `place` printed trimmed to what moved to shelf, its validation elided | the playground depending on stockroom-shelf; `place` in full (86 lines, mostly stockroom's validation) |
 | Where the comparison with other crates lives | a short table in §0.2 (who writes the SQL, when a mapping mistake is caught), toasty in prose; the appendix's phrasebook maps API names | the full table in the appendix |
 | Chapter 1's fetch helpers | the simple form (`query`, then map); shelf's prepare-first version is described and left to Chapter 5 | preparing first already in Chapter 1 |
 | Chapter 3's stage generator | new code that writes Chapter 1's impl (`from_row` with `try_get` by name), so the stage reads as Chapter 1 automated; the excerpts of the finished generator elide what Chapters 4 and 5 add | reproducing S0's generator, which was not kept |
@@ -819,66 +830,55 @@ code, and tagged with the chapter where it belongs.
 | 66 | **What PostgreSQL 18.6 checks when a write is prepared**: an `INSERT` naming a `GENERATED ALWAYS` identity column fails at *Parse* (428C9, with a DETAIL and the HINT `OVERRIDING SYSTEM VALUE`); an `ON CONFLICT` target that matches no unique index prepares fine and fails only when run (42P10), because the arbiter index is inferred when the statement is planned. An `ON CONFLICT DO UPDATE` that updates still draws an identity value (the next row's id skips one); `ON CONFLICT DO NOTHING RETURNING` returns no row on a conflict; `MERGE … RETURNING merge_action()` (PG 17+) works with `USING (VALUES ($1::text, $2::bigint))`, the casts typing the parameters. A domain parameter refused on the client names the domain with its schema (`pg_temp_86.sku` for a temporary domain, a number that changes per session; the chapter uses a named schema). An `UPDATE` that changes no value still moves the row's `ctid`. | 8 |
 | 67 | **Chapter 9's checks**: serde reads a JSON `null` into `Option<Option<T>>` as `None`, like an absent field; `Option::<T>::deserialize(d).map(Some)` with `#[serde(default)]` tells them apart. The three `Patch` designs again, 14 patches (7 shapes, 4 writing NULL) in a debug build through lagproxy: (a) 7 statements, 22.0–22.7 ms a patch; (b) 1, 0 of 4 NULLs, 15.6–16.4 ms; (c) 1, 15.5–15.8 ms. An empty patch on a versioned model still adds one to the version (and sets `updated_at`), since those are always in the `SET` list. A `bigint` version column with an `i64` field works, `Stale` included, past `i32::MAX`. `now()` is the same for two patches 20 ms apart in one transaction, and at least 20 ms apart outside one. | 9 |
 | 68 | **SeaORM 2.0.4, from its source** (for the side-by-sides of Chapters 6–9): `Entity::find_by_id(k).one(db)` adds `LIMIT $n` as a parameter; the dense entity format (`#[sea_orm::model]`) still needs `impl ActiveModelBehavior for ActiveModel {}`; `ActiveModel::insert` runs `before_save`/`after_save` around `exec_with_returning`; nothing in its update path handles a version column, and `update_many().set(…).filter(…).exec(db)` returns `UpdateResult { rows_affected }`. sqlx 0.9's `Executor` is implemented for `&Pool` and `&mut PgConnection` only, taken by value; a function running two queries on one generic executor takes `Acquire`. | 6–9 |
+| 69 | **Chapter 10's checks** (rustc 1.99.1, PG 18.6): a stage `Value<T>` with one widening impl (`i32` for `i64`) fails `gt(3_000_000_000)` with "literal out of range for `i32`" (`overflowing_literals`), and compiles without it; a stage `filter(impl Into<Expr<M>>)` with `From<Raw<M>>` reports another model's condition as "the trait bound `Expr<Product>: From<Expr<Order>>` is not satisfied … but trait `From<Raw<Product>>` is implemented for it" (captured for §10.6). **Two fields that differ only in case** (`sku`, `SKU`) both become the constant `SKU`: E0592 "duplicate definitions with name `SKU`", reported at `Table` although the constant's name carries the field's span. `NOTE.eq(None)` renders `= $1` with a NULL and matches no row (`is_null` matched 2), and `ne("fragile")` matched 0 of 3 rows, the NULLs left out. **Seven requests of `page` with two optional filters prepared four statements** on a pool of one (`pg_prepared_statements`, counted through `query_typed`): one per shape, values and `LIMIT` being parameters. A nullable column's value prints as `Some(0)` in `params()`; a panic's first line carries the thread id (`thread 'main' (25976639)`), which changes per run. | 10 |
+| 70 | **Chapter 11's measurements** (debug build, lagproxy at 5 ms each way, PG 18.6 on the same machine, Apple Silicon, three runs): the lines of 50 orders × 3 lines on a plain `Client`: the loop 1.5 s each run (51 statements, counted by an executor of the chapter's own that wraps a `Client`), the loop pipelined with `try_join_all` 29.0–30.5 ms, `Order::load_lines` 28.6–30.9 ms (2 statements); through the proxy the pipelined loop is as fast as the loader, and only the localhost column of #42 shows its extra work. `load_lines` then `load_store` 52.7–58.6 ms in sequence, 28.5–28.7 ms with `try_join!`. Checked in the sources: syn 3.0.9's `parse_meta_path` reads a nested key with `Ident::parse_any`, so `as = lines` parses as a key; SeaORM 2.0.4's `LoaderTrait::load_many` returns `Vec<Vec<Model>>` and builds `(cols) IN ((…), …)` with one bound value per distinct key (`loader.rs`, `prepare_condition_with_save_as`), composite keys included. | 11 |
+| 71 | **`insert_many` broke on a composite column, found while writing Chapter 12**: `INSERT INTO stores (code, address) SELECT * FROM unnest($1::text[], $2::address[])` fails at *Parse* with 42601 "INSERT has more expressions than target columns", since a multi-argument `unnest` in `FROM` expands a composite into its fields (root PLAN.md §12 #4). Fixed: `SELECT unnest($1::…[]), unnest($2::…[])` keeps it whole (plan: `ProjectSet` over `Result`), pads unequal arrays with NULLs as before, and is tested (`a_composite_column_goes_through_insert_many_whole`, with `copy_in` too). Re-measured after the fix (release, rustc 1.99.1, Apple Silicon, PG 18.6 on localhost; `bench_bulk` three runs, median of 3 each): 20,000 rows: loop 0.767–0.782 s, pipelined 0.146–0.151 s, `insert_many` in batches 0.015 s, one call 0.014 s (0.016–0.018 s before), `copy_in` 0.006 s; pgload in the same session (two runs) 0.733–0.761 s, 0.120–0.121 s, `unnest` batches 0.013–0.014 s, CSV COPY 0.013 s, binary COPY 0.007–0.008 s. `--keyed`: 0.822–0.834 s, 0.180–0.202 s, 0.030–0.058 s, 0.026–0.038 s, 0.017–0.028 s. 2,000 rows through lagproxy at 1 ms: 9.480–9.513 s, 0.156–0.157 s, 0.013–0.018 s, 0.008–0.009 s, 0.012 s (a COPY takes two round trips, a cached `insert_many` one). Debug build, 10,000 rows in a transaction (Chapter 12's program, three runs): loop 1.2 s, `insert_many` 23.2–23.7 ms, `copy_in` 9.1–9.7 ms. **A statement takes at most 65,535 parameters**: postgres-protocol 0.6.12 writes the count as a `u16`; with 65,536, PG 18.6 prepares the statement and tokio-postgres 0.7.18 fails to read its *ParameterDescription* ("error parsing response from server", caused by "invalid message length: parameters is not drained"), and the connection still works. `shelf::Error::Db`'s display is "db error"; the server's message is `as_db_error()`'s. A binary COPY's `where_` names the line and column, not the value. | 12 |
+| 72 | **Chapter 13's checks** (PG 18.6): after `ALTER TABLE … DROP COLUMN note`, the model's cached `SELECT` (deadpool) fails on its next execution with 42703 `column "note" does not exist`, PostgreSQL analyzing its text again, not with 0A000 (which is what a `SELECT *` gets after a column is added, main book §4.6). A column made nullable under a model maps every row until the first NULL (`Mapping::Null`), and `verify` reports it before any row exists. `varchar(5)` under a `String` field passes `verify` and fails the next long insert with 22001: a type modifier is not in what `accepts` sees. A stage expansion test with a hand-typed expectation failed on one line that prettyplease breaks (`column::<\n String,\n >(…)`), which is why expansions are captured. From the sources: sqlx-postgres 0.9.0 infers a column's nullability from `pg_attribute.attnotnull` (one `UNION ALL` query, three binds per column) and patches it with `EXPLAIN (VERBOSE, FORMAT JSON)` (`connection/describe.rs`); sqlx-macros-core 0.9.0 uses `DATABASE_URL` unless `SQLX_OFFLINE` is set, then `query-<hash>.json` in `SQLX_OFFLINE_DIR`, the crate's `.sqlx` or the workspace's (`query/mod.rs`). | 13 |
+| 73 | **`line_for_line` again, after §12 #71's change to `insert_many`** (release, lagproxy at 5 ms each way, a round trip 13.9 ms, three runs, median of five warm calls): the everyday functions 13.5–14.4 ms on both sides; `products::update` stockroom 13.7–14.3 ms, shelf 27.3–28.5 ms (2 statements, 2.0–2.1 round trips); `orders::place` stockroom 124.4–125.7 ms (7 prepared cold, 2 warm, 9 run, 9.0–9.1 round trips), shelf 82.4–85.0 ms (6, 0, 7, 5.9–6.1); `orders::get` stockroom 13.8–14.3 ms (1 round trip), shelf 27.6–28.1 ms (2). The counts match #54. A session for Chapter 14.6: `seed --reset` printed "seeded 3 stores, 1000 products, 2995 stock rows, 20000 movements"; `verify` "every model matches its table"; `curl … /products/stream | head -2` made the service log stockroom's "cancelled a query nobody was waiting for" (`CancelOnDrop`); `NO_COLOR=1` keeps tracing's colour codes out of a captured log. | 14 |
 
 ---
 
-## 13. Next steps: phase S3c, step by step
+## 13. Next steps: phase S4, step by step
 
-**Resuming in a new session:** read this section first, then §7's Chapters 10–14 and the
-appendix, their sketches (`orm/book/10-query-builder.md` to `15-appendix.md`, each describing the
-design as built), §4.0c and §4.0d, §10's rows marked S1c and S2, §12 #34–#56, and the written
-Chapters 6–9 for the voice. Each step is ticked when it is done and its gates are green, and a
-step in progress says how far it got. The work is on the branch `shelf` and may not be committed
-yet (`git status`); commit only when the user asks. **Check first that no other session is
-working in this repository** (§11): two sessions in one working tree overwrite each other's
-files.
+**Resuming in a new session:** read this section first, then §9's S4 row, §5 (the coverage
+matrix) and the written book (`orm/book/`, all `current`). Each step is ticked when it is done and
+its gates are green, and a step in progress says how far it got. The work is on the branch `shelf`
+and may not be committed yet (`git status`); commit only when the user asks. **Check first that no
+other session is working in this repository** (§11): two sessions in one working tree overwrite
+each other's files.
 
-**Done before:** S0, S1a and the sketches (2026-11-07); Chapters 0–4, S1b, S1c, S2 (the
-capstone), S3a (Part I) and S3b (Part II), all on 2026-11-09: Chapters 0–9 `current`. Open from
-earlier phases: composite foreign keys in relations (Chapter 11's open question); an optional
-version on a `Patch` (Chapter 14's Exercise 2, §10).
+**Done before:** S0, S1a and the sketches (2026-11-07); Chapters 0–4, S1b, S1c, S2, S3a, S3b and
+S3c, all on 2026-11-09: every chapter `current`, 141 runnable examples. S3c's checklist, as it was
+done: Chapter 10 (18 examples, the `$n` scanner shown finished; §12 #69), Chapter 11 (10, two
+through lagproxy, composite foreign keys an exercise; §12 #70), Chapter 12 (12; the composite bug
+in `insert_many` fixed, the bulk benchmarks re-run; §12 #71), Chapter 13 (8; Exercise 1 a list of
+boxed futures; §12 #72), Chapter 14 (no runnable programs, as the main book's capstone; a real
+session; `line_for_line` re-run, §12 #73), the appendix (excerpts of four expansion tests, the
+phrasebook checked in the sources).
 
-**How S3b worked, to repeat:** compiler errors probed in a scratch workspace on shelf by path
-(orm/CLAUDE.md), pasted from the build; the third column of each side by side checked in the
-registry's sources (SeaORM 2.0.4, sqlx 0.9.0, diesel 2.3.14 are all there); timings as
-`needs=lagproxy` programs with relative assertions, then three runs by hand through a lagproxy
-started on a spare port for the ranges the text quotes; outputs captured with
-`cargo run -p shelf-playground --example shelf_chNN_KK` after `book.py --book orm extract`.
-Watch for output that changes per session (a temporary schema's name, `pg_temp_86`): use a named
-schema, created and dropped by the program. The playground gained `axum`, `bytes` and
-`postgres-types` in S3b.
+**How S3c worked, to repeat in any later chapter edit:** probes in the scratchpad (a single-file
+`rustc` program for a compiler error that needs no crate; a scratch workspace with shelf by path
+otherwise), outputs captured by `cargo run -p shelf-playground --example shelf_chNN_KK` after
+`book.py --book orm check --chapter N`, timings through a lagproxy started on a spare port, three
+runs for each range the text quotes. Twice in S3c a typed expectation was wrong (a pretty-printed
+line break, the error a cached statement gets): capture, never type.
 
-**S3c, Part III** (§9: Chapters 10–14 and the appendix `current`, `book.py --book orm check`
-passing, excerpts and links included). For each chapter: settle its sketch's open questions (in
-§10 or §12), probe what is uncertain, write it in place of the sketch, `book.py --book orm fmt
---chapter N` and `check --chapter N`, then set it `current`. Expansions come from
-`shelf_playground::pretty`, compiler errors from `orm/shelf/tests/ui/*.stderr` or a scratch
-build.
+**S4, polish and merge** (§9: the book PDF, a read-through, a coverage audit against §5, and
+merging `shelf` into `main`; done when `book.py --book orm list` shows every chapter `current` and
+the PDF fresh):
 
-- [ ] **1. Chapter 10, *A typed query builder***: `shelf/src/query/` (`column.rs`, `expr.rs`,
-  `mod.rs`, `render.rs`) and `shelf-codegen/src/columns.rs`; the value trait and its compile
-  errors (§12 #34, #35, #41, UI test `query.rs`); how PostgreSQL types the builder's parameters
-  (§12 #36). Third column: diesel 2.3.14. Open: whether the `$n` scanner of `Expr::raw` is built
-  step by step or shown finished.
-- [ ] **2. Chapter 11, *Relations without N+1***: `shelf-codegen/src/relations.rs`,
-  `shelf/src/relations.rs`; N+1 measured (`bench_relations`, §12 #42) and a `needs=lagproxy`
-  program; UI test `relations.rs`. Third column: SeaORM 2.0.4's loader (its README's "Smart
-  Entity Loader"). Open: composite foreign keys as an exercise.
-- [ ] **3. Chapter 12, *Bulk writes and streams***: `shelf/src/bulk.rs`, `shelf/src/stream.rs`;
-  `unnest` and its casts, COPY with the `INSERT`'s types and the guard for #789 (§12 #37, #38),
-  streams (§12 #39), the bulk measurements (§12 #44–#46). Open: the debug-build ratio for a
-  relative timing assertion.
-- [ ] **4. Chapter 13, *Trusting the mapping***: `shelf/src/verify.rs`, `orm/shelf/tests/`; what
-  the catalog says about NULLs (§12 #40), the cache that hides a migration (§12 #43), what one
-  suite against two routers covers (§12 #53); the expansion, UI and integration tests explained.
-  Open: whether Exercise 1 needs a trait object over models or a list of function pointers.
-- [ ] **5. Chapter 14, *Capstone***: `orm/stockroom-shelf` (§4.0d, §12 #47–#56; `line_for_line`,
-  #54; lines of code, #55). Open: whether its runnable examples drive stockroom-shelf from the
-  playground (a dependency on the capstone) or show it through excerpts and its tests; how much
-  of `place` to print.
-- [ ] **6. Appendix (15)**: the attribute reference, each derive's expansion (run shelf-codegen),
-  the phrasebook, the glossary, further reading. Open: where the phrasebook lives (here or
-  Chapter 0); one expansion per derive or every expansion test.
-- [ ] **7. Wrap-up:** all gates (both books); the book PDF rebuilt; the status lines in this
-  file, orm/CLAUDE.md and the root CLAUDE.md; then replace this checklist with the next phase's
-  (§9: S4, polish and merge), and ask the user about a commit.
+- [ ] **1. Read-through**, Chapters 0–15 in order: cross-references between chapters written on
+  different days (Chapters 0–4 were written before S1b), terms against the appendix's glossary,
+  figures quoted twice (a measurement in a chapter and in §12) agreeing, banners and
+  Previous/Next lines, every *Hint* present.
+- [ ] **2. Coverage audit** against §5's matrix: each row's chapter shows the feature, with a
+  runnable example or an excerpt; fix the matrix where a chapter moved a topic.
+- [ ] **3. Small debts found in S3c:** `orm/shelf/src/lib.rs`'s crate documentation still says
+  "Phase S1a built the mapping" and lists only the mapping; its `Table` derive documentation does
+  not mention `has_many` and `belongs_to`. orm/SKETCHES.md describes sketches that no longer
+  exist in `orm/book/` (keep it as the method, say so).
+- [ ] **4. The book PDF** rebuilt (`book.py --book orm book`) after the read-through, and
+  `book.py --book orm list` showing it fresh.
+- [ ] **5. All gates**, both books; then ask the user about merging `shelf` into `main`, and after
+  the merge run the gates on `main` and update the status lines (this file, orm/CLAUDE.md, the
+  root CLAUDE.md and PLAN.md).

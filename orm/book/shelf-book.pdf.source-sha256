@@ -1,4 +1,4 @@
-479e9d6cad88bc13541b87ff4d79ef530924be6f85b923b4f903274522fff351  orm/book/00-introduction.md
+b002de750d1ad6ed2351e3c911e25bddcf462778dee138cc2b1e13c7fa707b17  orm/book/00-introduction.md
 419ceb358afbff9ce0f461f1cdf3ec32e79a383043131fdb935888bd35f40605  orm/book/01-mapping-by-hand.md
 f012b9d4acfe0ec7edccd8bed0439df5ee85508a4bc1333fb2ab526b3a226f78  orm/book/02-declarative-macros.md
 73a326896b02017820aade0506def100fd4ada4216e3b26475acfb6747cb11d5  orm/book/03-first-derive.md
@@ -8,9 +8,9 @@ ec469106e43841e1ed86130882a1b80b4885af7bd91be62da2d17f33253f8434  orm/book/06-ta
 66a5f155fd227f893b9469bb929d79fb86e037b9b9c26d692e4a029f4adf7b62  orm/book/07-executor.md
 326f03bd508f3d4696e4803b87338ad3900171160c7adce464ca6de53628b624  orm/book/08-writing.md
 bd0e6efe498a8b93ed352bee22ae876d6195cc05c25e9202af6c67a638dd5ea1  orm/book/09-patch-and-versions.md
-f59603172f785ab8cf931ab1f2aac00cd54efe4405dba504b114e4c24853e5fd  orm/book/10-query-builder.md
-efce49643103f0ce2ddf829cab1d195c2abe64d086e2b8bcbac32d1cbe05ccfb  orm/book/11-relations.md
-f75b7414b1a66eae723ca123f03b6bfcaf3bb4d3a8393ec22814dda84329d06d  orm/book/12-bulk-and-streams.md
-240ec215436a0c31d6cdaf46d4703c35c7d8b902333bd561cd970fc7b2438d4e  orm/book/13-trusting-the-mapping.md
-203b0f1f6eb8d7bb2880b027e526a011dd9900cb71184f48fbc8072c96cd7bec  orm/book/14-capstone.md
-e46451d2147ac2492f66a6b26e978ed4b188d432b28e9cee85f9c4dcc2791b3f  orm/book/15-appendix.md
+601a20a9fd193168de665cc8486727e1853937e4d8893f6eadd0720f5d366b2a  orm/book/10-query-builder.md
+1bb98e887572c7c4c4f1f2a6f0b04a38876f16d3329d212e15a1ffc279caebc6  orm/book/11-relations.md
+64c5b1e382a44cf2638970f14a924e1ee65bc87e60d8ed9d62df6527c8c314f5  orm/book/12-bulk-and-streams.md
+afb09dd8ce82e75ac403fb808e1bbfd8e7888745bc7f452b0fefa518000163c8  orm/book/13-trusting-the-mapping.md
+f2a792903e8ee9fe7349d44a710902001f8305e5c2eba2f9d161fcef511946e5  orm/book/14-capstone.md
+1668d503913e5fadf2cca482d8f7be76b96770811bc1073377f67050293794c2  orm/book/15-appendix.md

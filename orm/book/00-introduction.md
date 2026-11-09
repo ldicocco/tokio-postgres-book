@@ -248,7 +248,7 @@ Each call says in its comment what it sends:
 - `find` sends `SELECT <every column> FROM products WHERE id = $1`, and turns "no row" into an
   error you can match, `Error::NotFound` (Chapter 6).
 - `copy_in` writes the whole batch with one binary `COPY`. Its sibling `insert_many` writes a
-  batch with one `INSERT … SELECT … FROM unnest(…)`, for structs without array columns such as
+  batch with one `INSERT … SELECT unnest(…), …`, for structs without array columns such as
   `tags` (Chapter 12).
 - The query builder renders one `SELECT` with `$1`, `$2` and `$3` as parameters, printed
   above. Its columns are typed, so comparing `PRICE_CENTS` with a string does not compile

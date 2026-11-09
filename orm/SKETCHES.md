@@ -20,6 +20,8 @@ contains the sketches (the registry's `pdf_statuses`), so a reader sees the whol
 before it is written. All sixteen were written on 7 November 2026, after phase S1a; Chapters 0–4
 replaced theirs on 9 November 2026, and the sketches of Chapters 6–13 were revised the same day
 to the design as built in phases S1b and S1c, and Chapter 14's to the capstone as built in S2.
+By the end of 9 November 2026 (phase S3c) every chapter had replaced its sketch; this file stays as
+the method, for a chapter added later.
 
 When a chapter is written, it replaces its sketch: the same file, the card gone, the open
 questions settled (in PLAN.md §10 or §12), the status `draft` and then `current`. A sketch

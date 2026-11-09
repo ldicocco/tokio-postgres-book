@@ -131,6 +131,60 @@ async fn insert_many_writes_a_batch_in_one_statement_and_returns_it() {
     );
 }
 
+/// A composite column: `unnest` in `FROM` would expand each address into its fields.
+#[derive(Debug, Clone, PartialEq, ToSql, FromSql)]
+#[postgres(name = "address")]
+struct Address {
+    street: String,
+    city: String,
+}
+
+#[derive(Debug, PartialEq, FromRow, Table)]
+#[shelf(table = "stores")]
+struct Store {
+    #[shelf(primary_key, generated)]
+    id: i64,
+    code: String,
+    address: Address,
+}
+
+#[derive(Insert)]
+#[shelf(model = Store)]
+struct NewStore {
+    code: String,
+    address: Address,
+}
+
+#[tokio::test]
+async fn a_composite_column_goes_through_insert_many_whole() {
+    let db = TestDb::new().await;
+    let client = db
+        .client_with(
+            "CREATE TYPE address AS (street text, city text);
+             CREATE TABLE stores (
+                 id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                 code text NOT NULL,
+                 address address NOT NULL
+             );",
+        )
+        .await;
+    let rows: Vec<NewStore> = [("B1", "Berlin"), ("H1", "Hamburg")]
+        .into_iter()
+        .map(|(code, city)| NewStore {
+            code: code.into(),
+            address: Address {
+                street: "Main 1".into(),
+                city: city.into(),
+            },
+        })
+        .collect();
+    let stores = NewStore::insert_many(&client, &rows).await.unwrap();
+    assert_eq!(stores.len(), 2);
+    assert_eq!(stores[1].address.city, "Hamburg");
+    assert_eq!(NewStore::copy_in(&client, &rows).await.unwrap(), 2);
+    assert_eq!(Store::count(&client).await.unwrap(), 4);
+}
+
 #[tokio::test]
 async fn copy_in_loads_a_batch_and_counts_it() {
     let db = TestDb::new().await;

@@ -30,8 +30,10 @@ pub fn array<'r, R: Sync, T: ToSql + Sync + 'r>(
     Box::new(rows.iter().map(field).collect::<Vec<&T>>())
 }
 
-/// `Insert::insert_many`: `INSERT INTO "t" ("a", "b") SELECT * FROM unnest($1::…[], $2::…[])
-/// RETURNING …`, one array per column.
+/// `Insert::insert_many`: `INSERT INTO "t" ("a", "b") SELECT unnest($1::…[]), unnest($2::…[])
+/// RETURNING …`, one array per column. The `unnest`s are in the select list, where each keeps a
+/// composite value whole; `SELECT * FROM unnest(…)` would expand it into its fields (main book
+/// PLAN.md §12 #4). Set-returning functions in a select list run in step, row by row.
 pub(crate) async fn insert_many<I: Insert>(
     db: &impl Executor,
     rows: &[I],
@@ -62,14 +64,14 @@ pub(crate) async fn insert_many<I: Insert>(
             });
         }
         casts.push(format!(
-            "${}::{}.{}[]",
+            "unnest(${}::{}.{}[])",
             i + 1,
             quote_ident(ty.schema()),
             quote_ident(ty.name())
         ));
     }
     let sql = format!(
-        "INSERT INTO {table} ({}) SELECT * FROM unnest({}) RETURNING {returning}",
+        "INSERT INTO {table} ({}) SELECT {} RETURNING {returning}",
         I::COLUMNS.join(", "),
         casts.join(", ")
     );
