@@ -19,23 +19,30 @@
 //!     shelf::fetch_all(&client, "SELECT id, sku_code, tags FROM products", &[]).await?;
 //! ```
 
+mod bulk;
 mod error;
 mod executor;
 mod fetch;
 mod json;
 mod patch;
+pub mod query;
+mod relations;
 mod row;
 mod sql;
+mod stream;
 mod table;
 mod tuples;
+mod verify;
 mod write;
 
-pub use error::{Error, Mapping};
+pub use error::{Error, Mapping, Mismatch};
 pub use executor::Executor;
 pub use fetch::{fetch_all, fetch_one, fetch_opt};
 pub use patch::Patch;
 pub use row::{FromColumn, FromRow, from_rows};
+pub use stream::{ModelStream, fetch_stream};
 pub use table::Table;
+pub use verify::verify;
 pub use write::{Insert, Upsert};
 
 /// Derives [`FromRow`](trait@FromRow). Each named field is read from the column of the same
@@ -114,10 +121,14 @@ pub use shelf_macros::Patch;
 /// What generated code refers to. Not part of the API: it may change in any release.
 #[doc(hidden)]
 pub mod __private {
+    pub use crate::bulk::array;
     pub use crate::json::Json;
     pub use crate::patch::{flag, patch_sql};
+    pub use crate::relations::{ForeignKey, children, load_children, load_parents, parent_opt};
     pub use crate::row::{column, column_at, get, get_try_from};
     pub use crate::sql::{join, total_len, utf8};
     pub use crate::table::param;
+    pub use crate::verify::Field;
+    pub use serde_json;
     pub use tokio_postgres;
 }

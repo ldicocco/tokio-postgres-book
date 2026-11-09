@@ -4,6 +4,7 @@ use std::future::Future;
 
 use tokio_postgres::types::ToSql;
 
+use crate::bulk::{self, Array};
 use crate::error::Error;
 use crate::executor::Executor;
 use crate::fetch::{fetch_one, fetch_opt};
@@ -20,8 +21,19 @@ pub trait Insert: Sync {
     /// `INSERT INTO … (…) VALUES ($1, …) RETURNING …`, the model's columns.
     const INSERT: &'static str;
 
+    /// The columns it writes, quoted, in field order.
+    const COLUMNS: &'static [&'static str];
+
+    /// `COPY … (…) FROM STDIN (FORMAT binary)`, the same columns.
+    const COPY: &'static str;
+
     /// The fields, as `INSERT`'s parameters, in order.
     fn params(&self) -> Vec<&(dyn ToSql + Sync)>;
+
+    /// The fields of every row, one array per column, in order: `insert_many`'s parameters.
+    fn arrays(rows: &[Self]) -> Vec<Array<'_>>
+    where
+        Self: Sized;
 
     /// Inserts the row and returns it as the model, with every default filled in: one round
     /// trip.
@@ -30,6 +42,37 @@ pub trait Insert: Sync {
         db: &impl Executor,
     ) -> impl Future<Output = Result<Self::Model, Error>> + Send {
         async move { fetch_one(db, Self::INSERT, &self.params()).await }
+    }
+
+    /// Inserts every row in one statement, and returns them as the model: one array per column,
+    /// sent through `unnest` (`INSERT … SELECT * FROM unnest($1::text[], …) RETURNING …`), so a
+    /// batch costs one round trip whatever its size, plus the preparing of two statements
+    /// (cached by a deadpool connection). PostgreSQL returns the rows in the order it inserted
+    /// them, which in practice is the slice's, though SQL does not promise it.
+    ///
+    /// An array column cannot go through `unnest`, which flattens an array of arrays:
+    /// [`Error::Unsupported`]. Use [`copy_in`](Insert::copy_in) for those.
+    fn insert_many(
+        db: &impl Executor,
+        rows: &[Self],
+    ) -> impl Future<Output = Result<Vec<Self::Model>, Error>> + Send
+    where
+        Self: Sized,
+    {
+        bulk::insert_many(db, rows)
+    }
+
+    /// Loads every row with binary COPY, the fastest way in, and returns how many it loaded. No
+    /// rows come back: use [`insert_many`](Insert::insert_many) for the generated keys.
+    ///
+    /// The columns' types come from the prepared `INSERT`, which also checks the table and the
+    /// columns before the COPY starts: in tokio-postgres 0.7.18 a COPY rejected as it starts
+    /// would leave the connection unusable (issue #789).
+    fn copy_in(db: &impl Executor, rows: &[Self]) -> impl Future<Output = Result<u64, Error>> + Send
+    where
+        Self: Sized,
+    {
+        bulk::copy_in(db, rows)
     }
 }
 

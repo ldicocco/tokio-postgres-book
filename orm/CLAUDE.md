@@ -23,13 +23,18 @@ writing output from memory. This file lists only what differs or is added.
   (status `sketch`), in the format of [SKETCHES.md](SKETCHES.md), and the book PDF
   (`orm/book/shelf-book.pdf`) contains them.
 - **Chapters 0–4 are written** (2026-11-09), ahead of S1b at the user's request: 1–4 are
-  `current`, and 0 is a `draft` until its §0.3 (the API in ten lines) can run after S1c
-  (PLAN.md §10). The other chapters are still sketches.
+  `current`, and 0 is a `draft` until its §0.3 (the API in ten lines) runs, which S1c now allows
+  (PLAN.md §10). The other chapters are still sketches; those of 6–13 describe the design as
+  built.
 - **Phase S1b (the model) is done** (2026-11-09): the `Executor`, `#[derive(Table)]`,
   `#[derive(Insert)]` (with `Upsert`), `#[derive(Patch)]`, `version` and `updated_at`. PLAN.md
   §4.0b says what exists and where, §10 the decisions, §12 #28–#33 the probes and measurements.
-- **Next: phase S1c, queries and relations.** PLAN.md §13 is its checklist; a new session
-  starts there.
+- **Phase S1c (queries and relations) is done** (2026-11-09): the query builder, `has_many` and
+  `belongs_to`, `insert_many` and `copy_in`, streams, and `verify`. PLAN.md §4.0c says what
+  exists and where, §10 the decisions, §12 #34–#46 the probes and measurements.
+- **Next: phase S2, the capstone `orm/stockroom-shelf`.** PLAN.md §13 is its checklist; a new
+  session starts there, after checking that no other session works in the repository (two did
+  on 2026-11-09, and one overwrote the other's file).
 
 ## Commands
 
@@ -46,6 +51,8 @@ cargo test -p shelf --test from_row                    # one test file
 SHELF_BLESS=1 cargo test -p shelf-codegen --test expand   # accept changed expansions (read the diff)
 TRYBUILD=overwrite cargo test -p shelf --test ui       # accept changed compiler errors (read the diff)
 cargo run -p shelf --release --example bench_mapping   # the mapping benchmark (DATABASE_URL)
+cargo run -p shelf --release --example bench_relations # N+1 against the loaders (via lagproxy)
+cargo run -p shelf --release --example bench_bulk -- --rows 20000 [--keyed]   # bulk writes
 ```
 
 `--book` also goes after the command (`book.py check --book orm`). The root gates still apply:
@@ -131,7 +138,7 @@ The root list applies, plus:
   and gives each test a schema `t_<uuidv7>` (on the connection's `search_path`), dropped
   afterwards.
 
-## Verified facts (S0, S1a, Chapters 0–4, S1b)
+## Verified facts (S0, S1a, Chapters 0–4, S1b, S1c)
 
 - syn 3.0.9's derive types have the same shape as syn 2's (`DeriveInput`, `Data`, `Fields`),
   except `Field`: `mutability` became `modifiers: FieldModifiers`, and `default` is new.
@@ -177,6 +184,30 @@ The root list applies, plus:
   a generic impl whose inner consts mention its parameters (E0401, PLAN.md §12 #32).
 - A `const _: () = { if … { panic!("…") } };` in generated code turns a cross-type rule into a
   build error (E0080, "evaluation panicked: …"), as `Patch` does for the version field.
+- **The query builder's values take no numeric conversions**: one `impl Value<i64> for i32`
+  makes an integer literal fall back to `i32`, and `gt(3_000_000_000)` stops compiling
+  (PLAN.md §12 #34). An inherent constant shadows a trait constant of the same name
+  (`Product::VERSION` is the column): generated code writes `<M as Table>::…` (§12 #35).
+- `filter(impl Into<Expr<M>>)` reports another model's condition as a missing `From` impl; a
+  trait of shelf's own with `#[diagnostic::on_unimplemented]` (`Condition<M>`) says it plainly
+  (§12 #41). Spanning generated calls on the attribute's tokens (`quote_spanned!`) puts a
+  relation's type errors at `key = …`.
+- An inherent `async fn`'s future leaks its auto traits, so it is `Send` for a generic
+  executor; clippy (`manual_async_fn`) prefers it to `-> impl Future + Send` outside traits.
+  Inside a trait, keep `impl Future + Send` (§12 #28).
+- **`unnest` needs a cast per array, and the prepared single-row `INSERT` gives the right one**
+  (a domain as the domain); an array column cannot go through `unnest` (§12 #37). **Preparing a
+  `COPY` checks nothing**, not even the table, so the guard for #789 is the prepared `INSERT`
+  (§12 #38).
+- **A cached statement describes a table as it was**: `verify` prepares without the cache
+  (`Executor::prepare_uncached`, §12 #43). A view's columns report the view's OID, where
+  `attnotnull` is always false (§12 #40).
+- **Outside a transaction, every insert commits and waits for its WAL flush** (20,000 pipelined:
+  0.91–0.98 s against 0.13–0.14 s in one transaction, §12 #46); pgload's timings include its
+  setup and commit round trips, `bench_bulk`'s do not (§12 #45).
+- A test that holds a `Transaction` open when `TestDb` drops deadlocks: the drop blocks the
+  test's runtime while `DROP SCHEMA` waits for the transaction's locks, and the rollback it
+  queued cannot be sent. End transactions explicitly in tests.
 - **Probing compiler errors**: a scratch workspace with a proc-macro crate and a user crate that
   depends on shelf by path (`shelf = { path = "…/orm/shelf" }`) builds with `cargo build
   --offline`; run cargo from the scratch workspace's root, so that paths in the errors read

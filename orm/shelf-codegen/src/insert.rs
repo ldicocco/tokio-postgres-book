@@ -1,11 +1,12 @@
-//! `#[derive(Insert)]`: a `New…` struct's `INSERT … RETURNING`, and its upsert when fields are
-//! marked `conflict`. The table and the columns read back are the model's constants, joined
-//! into the statement at compile time (orm/PLAN.md §12 #32).
+//! `#[derive(Insert)]`: a `New…` struct's `INSERT … RETURNING`, its upsert when fields are
+//! marked `conflict`, and what the bulk writes need (the columns, the `COPY`, one array per
+//! column). The table and the columns read back are the model's constants, joined into the
+//! statements at compile time (orm/PLAN.md §12 #32).
 
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::ext::IdentExt;
-use syn::{Data, DeriveInput, Error, Fields, Ident, Result, Type};
+use syn::{Data, DeriveInput, Error, Fields, Ident, Result};
 
 use crate::attrs::{ContainerAttrs, Derive, Errors, FieldAttrs};
 use crate::sql::{column_list, quote_ident};
@@ -56,6 +57,15 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
                 ),
             ));
         }
+    }
+    for relation in &container.relations {
+        errors.push(Error::new(
+            relation.span,
+            format!(
+                "`{}` belongs on the model: an Insert struct writes to its model's table",
+                relation.value.kind.key()
+            ),
+        ));
     }
 
     let mut columns = Vec::new();
@@ -123,7 +133,23 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
             placeholders.join(", ")
         )
     };
-    let insert = joined(model, &format!("{values} RETURNING "));
+    let table = quote!(<#model as ::shelf::Table>::TABLE);
+    let returning = quote!(<#model as ::shelf::Table>::COLUMNS);
+    let middle = format!("{values} RETURNING ");
+    let insert = joined(&[
+        quote!("INSERT INTO "),
+        table.clone(),
+        quote!(#middle),
+        returning.clone(),
+    ]);
+    // Binary COPY of the same columns; the derive writes it, and `copy_in` checks it has some.
+    let copy_columns = if columns.is_empty() {
+        " FROM STDIN (FORMAT binary)".to_owned()
+    } else {
+        format!(" ({}) FROM STDIN (FORMAT binary)", column_list(&names))
+    };
+    let copy = joined(&[quote!("COPY "), table.clone(), quote!(#copy_columns)]);
+    let quoted = names.iter().map(|name| quote_ident(name));
 
     let params = columns.iter().map(|column| {
         let ident = column.ident;
@@ -134,19 +160,40 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
         }
     });
 
+    // `insert_many`'s arrays: each column of every row, borrowed.
+    let arrays = columns.iter().map(|column| {
+        let ident = column.ident;
+        if column.json {
+            quote!(::shelf::__private::array(rows, |row| ::shelf::__private::Json::from_ref(&row.#ident)))
+        } else {
+            quote!(::shelf::__private::array(rows, |row| &row.#ident))
+        }
+    });
+
     let name = &input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-    let to_sql =
-        quote!(&(dyn ::shelf::__private::tokio_postgres::types::ToSql + ::core::marker::Sync));
+    let to_sql = quote!(::shelf::__private::tokio_postgres::types::ToSql);
     let mut out = quote! {
         #[automatically_derived]
         impl #impl_generics ::shelf::Insert for #name #ty_generics #where_clause {
             type Model = #model;
 
             const INSERT: &'static ::core::primitive::str = #insert;
+            const COLUMNS: &'static [&'static ::core::primitive::str] = &[#(#quoted),*];
+            const COPY: &'static ::core::primitive::str = #copy;
 
-            fn params(&self) -> ::std::vec::Vec<#to_sql> {
+            fn params(&self) -> ::std::vec::Vec<&(dyn #to_sql + ::core::marker::Sync)> {
                 ::std::vec::Vec::from([#(#params),*])
+            }
+
+            fn arrays(
+                rows: &[Self],
+            ) -> ::std::vec::Vec<
+                ::std::boxed::Box<
+                    dyn #to_sql + ::core::marker::Sync + ::core::marker::Send + '_,
+                >,
+            > {
+                ::std::vec::Vec::from([#(#arrays),*])
             }
         }
     };
@@ -172,7 +219,8 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
             column_list(&conflict),
             set.join(", ")
         );
-        let upsert = joined(model, &format!("{values}{on_conflict}"));
+        let middle = format!("{values}{on_conflict}");
+        let upsert = joined(&[quote!("INSERT INTO "), table, quote!(#middle), returning]);
         out.extend(quote! {
             #[automatically_derived]
             impl #impl_generics ::shelf::Upsert for #name #ty_generics #where_clause {
@@ -183,17 +231,12 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
     Ok(out)
 }
 
-/// A block that joins, at compile time, `INSERT INTO <model's table>`, `middle`, and the
-/// model's columns: `RETURNING` reads back what the model reads.
-fn joined(model: &Type, middle: &str) -> TokenStream {
+/// A block that joins `parts` at compile time into one `&'static str`: string literals, and
+/// the model's constants (`<Product as Table>::TABLE`), which `concat!` cannot take.
+fn joined(parts: &[TokenStream]) -> TokenStream {
     quote! {
         {
-            const PARTS: &[&::core::primitive::str] = &[
-                "INSERT INTO ",
-                <#model as ::shelf::Table>::TABLE,
-                #middle,
-                <#model as ::shelf::Table>::COLUMNS,
-            ];
+            const PARTS: &[&::core::primitive::str] = &[#(#parts),*];
             const BYTES: [::core::primitive::u8; ::shelf::__private::total_len(PARTS)] =
                 ::shelf::__private::join(PARTS);
             ::shelf::__private::utf8(&BYTES)

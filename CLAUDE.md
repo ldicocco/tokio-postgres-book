@@ -67,9 +67,10 @@ also uses `sketch`, a chapter's plan in its place; orm/SKETCHES.md).
 - **The child project, shelf (`orm/`), finished phases S0 (scaffold) and S1a (the mapping)** on
   2026-11-07, on the branch `shelf`: `#[derive(FromRow)]` complete, `book.py --book`, and a
   sketch of every chapter, in `orm/book/shelf-book.pdf`. Its Chapters 0–4 were written on
-  2026-11-09, and phase S1b (the model: `Executor`, `Table`, `Insert`, `Patch`) was done the
-  same day; S1c is next (orm/PLAN.md §13). orm/PLAN.md §9 lists its phases, and §13 is the checklist for the
-  next one.
+  2026-11-09, and phases S1b (the model: `Executor`, `Table`, `Insert`, `Patch`) and S1c (the
+  query builder, relations, bulk writes, streams, `verify`) were done the same day; S2, the
+  capstone, is next (orm/PLAN.md §13). orm/PLAN.md §9 lists its phases, and §13 is the
+  checklist for the next one.
 
 ## Commands
 

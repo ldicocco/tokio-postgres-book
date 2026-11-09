@@ -7,7 +7,9 @@ use syn::ext::IdentExt;
 use syn::{DeriveInput, Error, Field, Index, Result};
 
 use crate::attrs::{ContainerAttrs, Derive, Errors, FieldAttrs};
+use crate::columns;
 use crate::from_row::named_fields;
+use crate::relations;
 use crate::sql::{column_list, equal_params, quote_ident};
 
 /// The `impl shelf::Table` for `input`, or every error in the keys `Table` owns.
@@ -41,6 +43,8 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
     let mut sets = Vec::new(); // what `update` writes: neither key nor generated
     let mut version = None; // the version column and its field, for optimistic locking
     let mut updated_at = None; // the column `update` sets to `now()`
+    let mut constants = Vec::new(); // the query builder's `Product::SKU`, one per column
+    let mut checks = Vec::new(); // `FIELDS`, what `verify` checks, one per column
     for (field, attrs) in &fields {
         if let Some(flatten) = &attrs.flatten {
             errors.push(Error::new(
@@ -103,6 +107,8 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
         {
             sets.push((ident, column.clone(), attrs.json.is_some()));
         }
+        constants.push(columns::constant(field, attrs, &column));
+        checks.push(columns::field(field, attrs, &column));
         columns.push(column);
     }
     let Some(table) = &container.table else {
@@ -112,11 +118,14 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
         ));
         return Err(errors.finish().expect_err("an error was pushed"));
     };
+    let mut methods = Vec::new(); // what `has_many` and `belongs_to` add
     if key.is_empty() {
         errors.push(Error::new_spanned(
             &input.ident,
             "Table needs a key: mark its column, or columns, #[shelf(primary_key)]",
         ));
+    } else {
+        methods = relations::methods(input, &container.relations, key.len(), &fields, &mut errors);
     }
     errors.finish()?;
     // A mistake in a key FromRow owns: FromRow reports it.
@@ -247,6 +256,7 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
             const VERSION: ::core::option::Option<&'static ::core::primitive::str> = #version_const;
             const UPDATED_AT: ::core::option::Option<&'static ::core::primitive::str> =
                 #updated_at_const;
+            const FIELDS: &'static [::shelf::__private::Field] = &[#(#checks),*];
 
             fn key(&self) -> Self::Key {
                 #key_value
@@ -259,6 +269,14 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
             fn update_params(&self) -> ::std::vec::Vec<#to_sql> {
                 ::std::vec::Vec::from([#(#set_params),*])
             }
+        }
+
+        // Unused constants and relations are not worth a warning: a model has one per column.
+        #[automatically_derived]
+        #[allow(dead_code)]
+        impl #name {
+            #(#constants)*
+            #(#methods)*
         }
     })
 }

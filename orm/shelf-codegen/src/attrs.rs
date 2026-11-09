@@ -10,7 +10,7 @@
 use proc_macro2::Span;
 use syn::meta::ParseNestedMeta;
 use syn::spanned::Spanned;
-use syn::{Attribute, Error, LitStr, Result, Token, Type};
+use syn::{Attribute, Error, Ident, LitStr, Path, Result, Token, Type};
 
 use crate::case::Case;
 
@@ -67,6 +67,8 @@ const KEYS: &[(&str, Derive)] = &[
     ("rename_all", Derive::FromRow),
     ("table", Derive::Table),
     ("schema", Derive::Table),
+    ("has_many", Derive::Table),
+    ("belongs_to", Derive::Table),
     ("rename", Derive::FromRow),
     ("skip", Derive::FromRow),
     ("flatten", Derive::FromRow),
@@ -81,7 +83,14 @@ const KEYS: &[(&str, Derive)] = &[
 ];
 
 /// The keys allowed on a struct, and on a field, in the order error messages list them.
-const CONTAINER_KEYS: &[&str] = &["rename_all", "table", "schema", "model"];
+const CONTAINER_KEYS: &[&str] = &[
+    "rename_all",
+    "table",
+    "schema",
+    "model",
+    "has_many",
+    "belongs_to",
+];
 const FIELD_KEYS: &[&str] = &[
     "rename",
     "skip",
@@ -102,6 +111,37 @@ pub struct ContainerAttrs {
     pub table: Option<Keyed<LitStr>>,
     pub schema: Option<Keyed<LitStr>>,
     pub model: Option<Keyed<Type>>,
+    /// `has_many(…)` and `belongs_to(…)`, in the order written; a model may have several.
+    pub relations: Vec<Keyed<Relation>>,
+}
+
+/// Which side of a relation a model is on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RelationKind {
+    /// `has_many(Child, key = parent_id, as = children)`: the other model's rows point here.
+    HasMany,
+    /// `belongs_to(Parent, key = parent_id)`: this model's field points at the other's key.
+    BelongsTo,
+}
+
+impl RelationKind {
+    pub fn key(self) -> &'static str {
+        match self {
+            RelationKind::HasMany => "has_many",
+            RelationKind::BelongsTo => "belongs_to",
+        }
+    }
+}
+
+/// A relation, as written: `has_many(OrderLine, key = order_id, as = lines)`.
+pub struct Relation {
+    pub kind: RelationKind,
+    /// The other model.
+    pub model: Path,
+    /// The foreign key: a field of the other model (`has_many`) or of this one (`belongs_to`).
+    pub key: Ident,
+    /// The name of the method it generates; `belongs_to` defaults to the model's name.
+    pub name: Option<Ident>,
 }
 
 impl ContainerAttrs {
@@ -146,6 +186,14 @@ impl ContainerAttrs {
         } else if meta.path.is_ident("model") {
             let ty: Type = meta.value()?.parse()?;
             once(&mut self.model, ty, meta)
+        } else if meta.path.is_ident("has_many") {
+            let relation = relation(meta, RelationKind::HasMany)?;
+            self.relations.push(relation);
+            Ok(())
+        } else if meta.path.is_ident("belongs_to") {
+            let relation = relation(meta, RelationKind::BelongsTo)?;
+            self.relations.push(relation);
+            Ok(())
         } else {
             Err(unknown(meta, "a struct", CONTAINER_KEYS))
         }
@@ -297,6 +345,66 @@ impl FieldAttrs {
             Read::Column
         }
     }
+}
+
+/// `has_many(Model, key = field, as = name)` or `belongs_to(Model, key = field)`, in any order.
+/// A method name is never guessed from a model's name in the plural.
+fn relation(meta: &ParseNestedMeta, kind: RelationKind) -> Result<Keyed<Relation>> {
+    let (mut model, mut key, mut name) = (None::<Path>, None::<Ident>, None::<Ident>);
+    let what = kind.key();
+    meta.parse_nested_meta(|inner| {
+        if inner.path.is_ident("key") {
+            if key.is_some() {
+                return Err(inner.error(format!("duplicate `key` in `{what}`")));
+            }
+            key = Some(inner.value()?.parse()?);
+        } else if inner.path.is_ident("as") {
+            if name.is_some() {
+                return Err(inner.error(format!("duplicate `as` in `{what}`")));
+            }
+            name = Some(inner.value()?.parse()?);
+        } else if inner.input.is_empty() || inner.input.peek(Token![,]) {
+            // A path with no value: the model.
+            if model.is_some() {
+                return Err(inner.error(format!(
+                    "`{what}` names one model; expected `key = …` or `as = …`"
+                )));
+            }
+            model = Some(inner.path.clone());
+        } else {
+            return Err(inner.error(format!(
+                "unknown key in `{what}`; expected the model, `key = …` and `as = …`"
+            )));
+        }
+        Ok(())
+    })?;
+    let example = match kind {
+        RelationKind::HasMany => "has_many(OrderLine, key = order_id, as = lines)",
+        RelationKind::BelongsTo => "belongs_to(Order, key = order_id)",
+    };
+    let Some(model) = model else {
+        return Err(meta.error(format!("`{what}` needs the related model first: {example}")));
+    };
+    let Some(key) = key else {
+        return Err(meta.error(format!(
+            "`{what}` needs `key = …`, the field that holds the foreign key: {example}"
+        )));
+    };
+    if kind == RelationKind::HasMany && name.is_none() {
+        return Err(meta.error(format!(
+            "`has_many` needs `as = …`, the name of the method it generates (shelf does not \
+             guess plurals): {example}"
+        )));
+    }
+    Ok(Keyed {
+        span: meta.path.span(),
+        value: Relation {
+            kind,
+            model,
+            key,
+            name,
+        },
+    })
 }
 
 fn shelf_attrs(attrs: &[Attribute]) -> impl Iterator<Item = &Attribute> {

@@ -51,6 +51,12 @@ impl ::shelf::Table for Product {
     const UPDATED_AT: ::core::option::Option<&'static ::core::primitive::str> = ::core::option::Option::Some(
         "\"updated_at\"",
     );
+    const FIELDS: &'static [::shelf::__private::Field] = &[
+        ::shelf::__private::Field::new::<i64>("id", "id"),
+        ::shelf::__private::Field::new::<i64>("price_cents", "price_cents"),
+        ::shelf::__private::Field::new::<i32>("version", "version"),
+        ::shelf::__private::Field::new::<Timestamp>("updated_at", "updated_at"),
+    ];
     fn key(&self) -> Self::Key {
         ::core::clone::Clone::clone(&self.id)
     }
@@ -71,4 +77,22 @@ impl ::shelf::Table for Product {
             ::shelf::__private::param(&self.version),
         ])
     }
+}
+#[automatically_derived]
+#[allow(dead_code)]
+impl Product {
+    /// The column `"id"`, for the query builder.
+    const ID: ::shelf::query::Column<Self, i64> = ::shelf::query::Column::new("\"id\"");
+    /// The column `"price_cents"`, for the query builder.
+    const PRICE_CENTS: ::shelf::query::Column<Self, i64> = ::shelf::query::Column::new(
+        "\"price_cents\"",
+    );
+    /// The column `"version"`, for the query builder.
+    const VERSION: ::shelf::query::Column<Self, i32> = ::shelf::query::Column::new(
+        "\"version\"",
+    );
+    /// The column `"updated_at"`, for the query builder.
+    const UPDATED_AT: ::shelf::query::Column<Self, Timestamp> = ::shelf::query::Column::new(
+        "\"updated_at\"",
+    );
 }

@@ -15,11 +15,15 @@ Status: **Phases S0 (scaffold) and S1a (the mapping) done on 2026-11-07**, on th
 generics, tuples, one check per statement, and the `fetch_*` helpers, with expansion, UI and
 integration tests and a benchmark. **Phase S1b (the model) done on 2026-11-09** (§4.0b): the
 `Executor`, `#[derive(Table)]`, `#[derive(Insert)]` with upserts, `#[derive(Patch)]`, `version`
-and `updated_at`, each probed or measured first (§12 #28–#33). Every chapter has a **sketch**
-in its place ([SKETCHES.md](SKETCHES.md)). **Chapters 0–4 were written on 2026-11-09**, ahead of S1b at the
-user's request (§10): Chapters 1–4 are `current`, and Chapter 0 is a `draft` until its §0.3 can
-run (after S1c). The book PDF, `orm/book/shelf-book.pdf`, shows the written chapters and the
-sketches. The next phase is S1c, queries and relations (§9, and §13 step by step).
+and `updated_at`, each probed or measured first (§12 #28–#33). **Phase S1c (queries and
+relations) done on 2026-11-09** (§4.0c): the typed query builder, `has_many` and `belongs_to`
+with batched loaders, `insert_many` and `copy_in`, streams of models, and `verify`, each probed
+first (§12 #34–#41), with the N+1 and bulk measurements (§12 #42, #44–#46). Every chapter has a
+**sketch** in its place ([SKETCHES.md](SKETCHES.md)); those of Chapters 6–13 describe the
+design as built. **Chapters 0–4 were written on 2026-11-09**, ahead of S1b at the user's request
+(§10): Chapters 1–4 are `current`, and Chapter 0 is a `draft` until its §0.3 runs (S3a, now
+that S1c is built). The book PDF, `orm/book/shelf-book.pdf`, shows the written chapters and the
+sketches. The next phase is S2, the capstone (§9, and §13 step by step).
 
 ---
 
@@ -101,9 +105,9 @@ holds the finished crate. The book handles it in five ways:
 
 ## 4. The software: shelf (as built so far, then the target)
 
-Items marked **(built, S1a)** or **(built, S1b)** exist and are tested; the rest is the target
-design, settled when its phase builds it, and then rewritten "as built", as the root PLAN.md §5
-was. §4.0 describes what S1a built, and §4.0b what S1b built.
+Items marked **(built, S1a)**, **(built, S1b)** or **(built, S1c)** exist and are tested; since
+S1c, every item of the target design does. §4.0 describes what S1a built, §4.0b what S1b built,
+and §4.0c what S1c built.
 
 ### 4.0 As built: the mapping (S1a, 2026-11-07)
 
@@ -133,6 +137,22 @@ was. §4.0 describes what S1a built, and §4.0b what S1b built.
 | `shelf::Error` | `shelf/src/error.rs` | `Mapping`, `NotFound { model }`, `Stale { model, current_version }`, `Db` |
 | Tests | `orm/shelf/tests/`, `shelf-codegen/tests/expand/` | `executor.rs`, `table.rs`, `insert.rs`, `patch.rs` against PostgreSQL (deadpool included, through `TestDb::pool`); UI tests `table.rs`, `insert.rs`, `patch.rs` (every error the three derives report); expansions `table`, `insert`, `patch`, `versions`; the hygiene test with `Table` and `Insert` beside `type str` and `type u8` |
 
+### 4.0c As built: queries, relations, bulk writes, streams and `verify` (S1c, 2026-11-09)
+
+| Item | Where | What it is |
+|---|---|---|
+| `Column<M, T>` | `shelf/src/query/column.rs`, `shelf-codegen/src/columns.rs` | A quoted column name with a marker `PhantomData<fn() -> (M, T)>`; `Table` generates one per column as an inherent constant, named after the field in capitals, as visible as the field (`Product::PRICE_CENTS: Column<Product, i64>`); `T` is what the column holds: the field's type, a `try_from` source type, `serde_json::Value` for `json`. Conditions: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `between`, `any` (`= ANY($n)`, one array); `like` on text columns; `is_null`, `is_not_null` on `Option` columns; `contains` (`@> $n`, a one-element array) on array columns; `asc`, `desc` |
+| `trait Value<T>` | `query/column.rs` | What a condition takes for a `T` column: `T`, `&T`, `&str` for `String`, `T` for `Option<T>`, `&str` for `Option<String>`; no numeric conversions, so a literal takes the column's type (§12 #34). `#[diagnostic::on_unimplemented]` |
+| `Expr<M>`, `Raw<M>`, `trait Condition<M>` | `query/expr.rs` | A tree of conditions (`and`, `or`, `!` through `std::ops::Not`) owning its values (`Box<dyn ToSql + Sync + Send>`); `Expr::raw(sql).bind(v)` for SQL the builder does not model, its `$1…` renumbered (a scanner that skips quoted text, dollar quotes and comments; a placeholder without a value panics when the raw SQL becomes a condition). `Condition<M>` is what `filter`, `and` and `or` take, with its own message for another model's condition (§12 #41) |
+| `Query<M>` | `query/mod.rs`, `query/render.rs` | `Table::query()`, then `filter` (several are ANDed), `order_by`, `limit`, `offset` (parameters), keyset `after(column, value)` (`"col" > $n`, ordered by it first); `all`, `first` (`LIMIT 1`), `count`, `exists` (both ignore order and paging), `stream`; `sql()` and `params()` show what is sent. Without `order_by`, key order. Rendered at each call; a deadpool connection caches each shape |
+| Relations | `shelf-codegen/src/relations.rs`, `shelf/src/relations.rs` | Container keys `has_many(Child, key = fk, as = name)` and `belongs_to(Parent, key = fk[, as = name])`, owned by `Table`, several per model. `has_many` adds `parent.name(&db)` and `Parent::load_name(&db, &parents) -> Vec<Vec<Child>>` (aligned with `parents`); `belongs_to` adds `child.name(&db)` (`Result<Parent>`, or `Result<Option<Parent>>` when the field is written `Option<…>`) and `Child::load_name(&db, &children) -> HashMap<Key, Parent>`; the name defaults to the model's in snake case. Each loader is one query through the builder (`= ANY($1)`) and groups in a `HashMap`. Single-column keys only (a composite key is refused for `has_many`). Calls spanned on the `key = …` tokens |
+| `insert_many`, `copy_in` | `shelf/src/bulk.rs`, `shelf-codegen/src/insert.rs` | Provided on `Insert`; the derive adds `COLUMNS`, `COPY` (joined at compile time) and `arrays(rows)`, one `Vec<&T>` per column. Both prepare the single-row `INSERT` first, for the column types and as the guard for #789 (§12 #37, #38). `insert_many`: `INSERT … SELECT * FROM unnest($1::"schema"."type"[], …) RETURNING …`; an array column is `Error::Unsupported`; no columns: `SELECT FROM generate_series`. `copy_in`: binary COPY with the `INSERT`'s types, returns the count |
+| Streams | `shelf/src/stream.rs` | `fetch_stream::<T>(&db, sql, params)` and `Query::stream(&db)` return `ModelStream<'a, T>`, a `Stream` of `Result<T, Error>`: resolved once from the statement, then each row as it arrives, over `query_raw`. It borrows the executor, so a pooled connection cannot go back to the pool mid-stream (UI test `stream.rs`) |
+| `verify::<M>(&db)` | `shelf/src/verify.rs` | Prepares `SELECT * FROM` the table without the statement cache (`Executor::prepare_uncached`, §12 #43), checks each field of `Table::FIELDS` (hidden: the column and the type it reads, `Field::new::<T>`), then asks `pg_attribute` which of the non-`Option` fields' columns can be NULL (tables only, not views). `Error::Schema { model, mismatches }`, every mismatch at once, in field order |
+| `Executor` | `shelf/src/executor.rs` | Gained `query_raw` (streams), `copy_in` (COPY) and `prepare_uncached` (a default, `prepare`; deadpool's types override it to skip the cache). It is not sealed: the relations test counts round trips with an executor of its own |
+| `shelf::Error` | `shelf/src/error.rs` | Gained `Schema { model, mismatches: Vec<Mismatch> }`, `Unsupported { model, message }`, and `Mapping::Nullable` |
+| Tests | `orm/shelf/tests/`, `shelf-codegen/tests/expand/` | `query.rs`, `relations.rs`, `bulk.rs`, `stream.rs`, `verify.rs` against PostgreSQL; UI tests `query.rs`, `relations.rs`, `stream.rs`; expansions `columns`, `relations`; the hygiene test with relations through a raw-identifier foreign key; benchmarks `bench_relations` and `bench_bulk` (§12 #42, #44) |
+
 ### 4.1 Crates
 
 | Crate | Kind | Role |
@@ -153,8 +173,8 @@ book explains (Chapter 3).
 | Derive | Goes on | Generates | Ch |
 |---|---|---|---|
 | `FromRow` **(built, S1a)** | a struct with named fields | `impl FromRow`: `Columns`, `resolve` and `from_row_at` (§4.0) | 3–5 |
-| `Table` **(built, S1b)** | a `FromRow` struct | `impl Table` (§4.0b); later the typed column constants (`Product::SKU`), relation methods and the COPY row writer | 6, 8–12 |
-| `Insert` **(built, S1b)** | a `New…` struct | `impl Insert` with `type Model`, the `INSERT … RETURNING` SQL and the parameters in order, and `impl Upsert` with `conflict` fields | 8 |
+| `Table` **(built, S1b, S1c)** | a `FromRow` struct | `impl Table` (§4.0b) with `FIELDS` for `verify`, and an inherent impl with the column constants (`Product::SKU`) and the relation methods (§4.0c) | 6, 8–13 |
+| `Insert` **(built, S1b, S1c)** | a `New…` struct | `impl Insert` with `type Model`, the `INSERT … RETURNING` SQL and the parameters in order, the columns, the `COPY` and one array per column for the bulk writes; and `impl Upsert` with `conflict` fields | 8, 12 |
 | `Patch` **(built, S1b)** | a struct of `Option` fields | `impl Patch`: design (c), one statement for every patch (§10) | 9 |
 
 `FromRow` also covers tuples, `(A,)` up to 12 elements, read by position **(built, S1a)**.
@@ -169,7 +189,7 @@ The container attributes (`#[shelf(…)]` on the struct):
 | `table = "products"`, `schema = "inventory"` **(built, S1b)** | `Table` | The table, quoted at macro time |
 | `model = Product` **(built, S1b)** | `Insert`, `Patch` | The model that `RETURNING` maps into, which also gives the table |
 | `rename_all = "…"` **(built, S1a)** | `FromRow` | A naming convention for columns: four cases, written by hand |
-| `belongs_to(Store, key = store_id)`, `has_many(OrderLine, key = order_id, as = lines)` | `Table` | Relations. Names are explicit: no pluralising guesswork |
+| `belongs_to(Store, key = store_id)`, `has_many(OrderLine, key = order_id, as = lines)` **(built, S1c)** | `Table` | Relations. `has_many` needs `as`: no pluralising guesswork; `belongs_to` defaults to the model's name in snake case |
 
 The field attributes:
 
@@ -186,13 +206,13 @@ The field attributes:
 | `updated_at` **(built, S1b)** | `SET updated_at = now()` on every update |
 | `conflict` **(built, S1b)** | On an `Insert` struct: part of the unique key an upsert collides on |
 
-### 4.4 The API in use (target, illustration)
+### 4.4 The API in use (illustration)
 
-Everything down to `Product::find` is built (S1b); the query builder, relations, bulk writes and
-`verify` are S1c's.
+All of it is built (S1b, S1c). Two details differ from the first design: `load_lines` returns a
+`Vec` per order, aligned with the slice, and binary COPY is `NewProduct::copy_in`.
 
 ~~~rust
-// shelf (target design, partly built)
+// shelf
 #[derive(Debug, FromRow, Table)]
 #[shelf(table = "products")]
 struct Product {
@@ -220,7 +240,8 @@ let page = Product::query()
     .all(&db)
     .await?;
 let lines = Order::load_lines(&db, &orders).await?;           // one query: = ANY($1)
-NewProduct::insert_many(&db, &batch).await?;                  // unnest; copy_in for binary COPY
+NewProduct::insert_many(&db, &batch).await?;                  // unnest
+NewProduct::copy_in(&db, &batch).await?;                      // binary COPY
 shelf::verify::<Product>(&db).await?;                         // the struct against the table
 ~~~
 
@@ -233,8 +254,10 @@ shelf::verify::<Product>(&db).await?;                         // the struct agai
   Transaction<'_>}`, which prepare every time, and, behind the default feature `deadpool`, for
   `deadpool_postgres::{Client, Transaction<'_>}`, which use the connection's statement cache.
   The three strategies were measured through lagproxy (§12 #29); `query_typed` is not used.
+  S1c added `query_raw` (streams), `copy_in` (COPY) and `prepare_uncached` (`verify`).
 - **`shelf::Error`**: `Mapping`, `Db` (S1a), `NotFound { model }` and `Stale { model,
-  current_version }` (S1b) are built. To come: `Schema(Vec<Mismatch>)` from `verify` (S1c).
+  current_version }` (S1b), `Schema { model, mismatches }` from `verify` and `Unsupported {
+  model, message }` from the bulk writes (S1c).
   Mapping constraint names to HTTP statuses remains the application's job, as with
   stockroom's `AppError`. Chapter 7 shows how.
 
@@ -586,7 +609,7 @@ as in the main book, so that every excerpt quotes real code.
 | **S1a. shelf: mapping** (done 2026-11-07) | `FromRow` complete (attributes, combined errors, the generics policy), tuple impls, one check per statement and `Error::Mapping`, `fetch_*` helpers, expansion tests, trybuild UI tests, and the `shelf_test` harness | The gates pass; the measurements for Chapters 1 and 5 are recorded in §12 |
 | **Sketches** (done 2026-11-07) | A sketch for each of the 16 chapters, in place, in the format of [SKETCHES.md](SKETCHES.md); the `sketch` status and `pdf_statuses` in `book.py`; the book PDF | `book.py --book orm check` passes; the PDF is fresh |
 | **S1b. shelf: the model** (done 2026-11-09) | `Table`, `Insert` and `Patch`; `Executor` with the `deadpool` feature; `shelf::Error`; CRUD and upsert; `version` and `updated_at`; the `Patch` design chosen by measurement | The gates pass; the statement-strategy and `Patch` measurements are in §12 |
-| **S1c. shelf: queries and relations** | The query builder, relations, `insert_many` and COPY, streams, and `verify` | The gates pass; the N+1 and bulk tables are in §12; the query builder's compile errors have UI tests |
+| **S1c. shelf: queries and relations** (done 2026-11-09) | The query builder, relations, `insert_many` and COPY, streams, and `verify` | The gates pass; the N+1 and bulk tables are in §12; the query builder's compile errors have UI tests |
 | **S2. stockroom-shelf** | The capstone app and its tests | The gates pass; the ported routes give the same responses as stockroom's |
 | **S3a. Part I** (Chapters 0–4 written 2026-11-09, ahead of S1b) | Chapters 0–5 | `book.py --book orm check` passes, including excerpts and links; the chapters are `current` |
 | **S3b. Part II** | Chapters 6–9 | The same |
@@ -627,6 +650,18 @@ as in the main book, so that every excerpt quotes real code.
 | Writes (S1b, step 4) | `Insert` on a `New…` struct (`model = Product`): `INSERT … RETURNING` the model's columns, joined at compile time; the struct may borrow but not have type parameters, and `Insert` reports every key's error, being the only shelf derive on its struct. `update(&self)` writes every column that is neither key nor `generated` and returns the row (`UPDATE … RETURNING`; with nothing to write, it reads the row); `delete`, `delete_by_key`; zero rows is `NotFound`. An upsert's target is the fields marked `#[shelf(conflict)]`, and a separate `Upsert` trait exists only when there are some (`ON CONFLICT (…) DO UPDATE SET` every other column; with none, the key is set to itself so the row is still returned). `json` fields are written through `__private::Json`, a `#[repr(transparent)]` view of the field (`Json::from_ref`), so that parameters still borrow from the struct. `Table` carries `#[diagnostic::on_unimplemented]` for a `model` that is not one. Generated code spells primitives `::core::primitive::str` | an upsert target given as an argument; `DO NOTHING` (no row returned); boxed, owned parameters |
 | The `Patch` design (S1b, step 5) | (c), `col = CASE WHEN $f THEN $v ELSE col END`: one statement for every patch, NULLs included, domains typed as their base type (§12 #30, #33). Its statement numbers the key's parameters after its own, and the key's length is the model's, so it is built once, at first use, in a `LazyLock<String>` by a function in shelf from the model's constants: the case where `LazyLock` is the right tool | (a), a statement per shape; (b), `coalesce`, which cannot set NULL; `const fn`s that write `$n` numbers |
 | Chapter 0's §0.3 (the API in ten lines) | the target design as a `~~~rust` illustration, marked as such; it becomes a runnable program after S1c, and Chapter 0 stays `draft` until then | showing only the mapping |
+| The query builder's values (S1c) | a trait of shelf's own, `Value<T>`: the column's type, a reference to it, `&str` for text, a plain value for a nullable column; no numeric conversions (§12 #34) | `impl Into<T>` (a literal falls back to `i32`, so `3_000_000_000` stops compiling); widening impls (the same) |
+| Column constants (S1c) | inherent constants on the model, the field's name in capitals, as visible as the field; they shadow a `Table` constant of the same name, which shelf always names in full (§12 #35) | a generated module (diesel's `products::sku`); an enum of columns (SeaORM's `Column::Sku`) |
+| A query's values (S1c) | owned, `Box<dyn ToSql + Sync + Send>` (one allocation each), so a query is built in one function and run in another, across an `.await` and `tokio::spawn`; `LIMIT` and `OFFSET` are parameters, so a page size is not a new statement | borrowed values with a lifetime on `Query` |
+| A query's order (S1c) | key order when there is no `order_by`, as `all` returns rows; keyset `after(column, value)` on one unique column | no `ORDER BY` (pages in no stable order); row comparisons for a composite cursor (an exercise) |
+| Raw SQL in the builder (S1c) | `Expr::raw(sql).bind(value)`, its `$1…` renumbered by a scanner that skips quoted text; a placeholder with no value panics where the condition is built | `?` placeholders (`?` is a `jsonb` operator); no raw SQL (every function modelled) |
+| `count` (S1c, Chapter 6's question) | on `Table` (every row) and on `Query` (the filtered rows); `exists` on `Query` | one of the two |
+| Relations (S1c) | generated methods that call loaders in shelf, each one query through the builder; `has_many` returns a `Vec` per parent, aligned with the slice; `belongs_to` a `HashMap` by key (each parent loaded once), and an `Option` when the foreign key field is written `Option<…>`; single-column keys; names explicit for `has_many` | a `HashMap` for both; composite foreign keys (an exercise); lazy loading (never: §7, 11.6) |
+| The column types for `insert_many` and `copy_in` (S1c) | learnt from the struct's own `INSERT`, prepared: each column's type as PostgreSQL types the parameter, so a batch accepts what `insert` accepts; preparing it is also the guard against #789 (§12 #37, #38) | an attribute naming SQL types; a prepared `SELECT … LIMIT 0` (the sketch's plan: it describes a domain column as its base type, which a domain newtype refuses: postgres-derive 0.4.9's `accepts` wants the domain's name and `Kind::Domain`) |
+| An array column in `insert_many` (S1c) | `Error::Unsupported`, before anything is sent, pointing to `copy_in` | a silent fallback to a loop |
+| What `insert_many` returns (S1c) | the rows, as the model (`RETURNING`), in the order PostgreSQL returns them, which in practice is the slice's | the count only (`copy_in` returns the count) |
+| Streams (S1c, Chapter 12's question) | `ModelStream<'a, T>` borrows the executor: a pooled connection cannot be returned with rows on the way (UI test); an HTTP body that must own its connection is the capstone's to build, as stockroom's `CancelOnDrop` | a stream that owns a pooled connection (Chapter 14) |
+| `verify` (S1c, Chapter 13's questions) | `SELECT * FROM` the table, prepared without a cache; type and name from `Table::FIELDS`, NULLs from `pg_attribute` for tables only (a view's columns are not checked for NULLs); every mismatch in `Error::Schema`, in field order; `New…` structs are not checked | the model's own `SELECT` (stops at the first missing column); reporting a view's columns as unknown; checking `NOT NULL` columns without defaults against `New…` structs (an exercise) |
 | Where the comparison with other crates lives | a short table in §0.2 (who writes the SQL, when a mapping mistake is caught), toasty in prose; the appendix's phrasebook maps API names | the full table in the appendix |
 | Chapter 1's fetch helpers | the simple form (`query`, then map); shelf's prepare-first version is described and left to Chapter 5 | preparing first already in Chapter 1 |
 | Chapter 3's stage generator | new code that writes Chapter 1's impl (`from_row` with `try_get` by name), so the stage reads as Chapter 1 automated; the excerpts of the finished generator elide what Chapters 4 and 5 add | reproducing S0's generator, which was not kept |
@@ -639,18 +674,24 @@ as in the main book, so that every excerpt quotes real code.
 - **Drift between the build-along text and the finished crate.** §3 handles this. Shape the
   crates to grow (§3, point 5) from S1a on.
 - **`Send` futures from the `Executor`** when used in generic code inside axum handlers and with
-  the retry helper (main book §12 #6). Probe this first in S1b, before the trait is fixed.
+  the retry helper (main book §12 #6). Resolved in S1b (§12 #28); S1c's inherent `async fn`s
+  (the builder, the loaders) are `Send` for a generic executor too, checked by compile-only
+  functions in `tests/query.rs` and `tests/relations.rs`.
 - **trybuild's `.stderr` files** change when rustc's wording changes. The toolchain is pinned,
   and they are regenerated deliberately.
 - **syn 3 is recent.** Most examples online show syn 2. Resolved for Chapter 3: the
   differences a derive meets are two fields of `Field` (§12 #3, #5).
 - **`cargo expand`**: resolved, it runs on stable (§12 #7).
-- **`Patch` design (c)** sends a typed value for every field, even unset ones. Verify that a
-  `None` of the field's type serializes for every column type, domains included.
-- **Query builder ergonomics:** a `&str` for a `String` column, and `i32` literals for `i64`
-  columns. Probe the trait design before Chapter 10.
-- **Nullability is not in a row description.** `verify` needs the catalog: check that 0.7.18's
-  `Column` exposes the table OID and column number.
+- **`Patch` design (c)** sends a typed value for every field, even unset ones. Resolved in S1b:
+  a typed `None` serialized for every column type tried, domains included (§12 #30).
+- **Query builder ergonomics:** resolved in S1c (§12 #34): `&str` works for text columns, and an
+  integer literal takes the column's type because shelf converts no numbers.
+- **Nullability is not in a row description.** Resolved in S1c (§12 #40): the catalog, through
+  `table_oid()` and `column_id()`, for a table's own columns.
+- **Two sessions in one working tree.** On 2026-11-09 a second Claude session resumed S1c from
+  this one's transcript while it was still running, and overwrote `examples/bench_bulk.rs` (its
+  version, closer to pgload, was kept). Before resuming a phase, check that no other session is
+  working in the repository (`git status`, file times).
 - **Size.** 15 chapters and an appendix. Write and verify one chapter at a time. Length follows
   the material (§7): do not cut verified content to meet the guide.
 
@@ -696,51 +737,60 @@ code, and tagged with the chapter where it belongs.
 | 31 | **`Stale` and `NotFound` in one round trip**: `WITH updated AS (UPDATE … WHERE id = $1 AND version = $2 RETURNING …) SELECT updated.*, (SELECT version FROM t WHERE id = $1) AS current_version FROM (VALUES (1)) AS one LEFT JOIN updated ON true` always returns one row: an updated row means success; no updated row and a current version means `Stale` (and gives the version to report, for a 412); neither means `NotFound`. The subquery sees the snapshot from before the `UPDATE`, so after a successful update it reports the old version. | 9 |
 | 32 | **SQL from another type's consts, at compile time, on stable Rust**: two `const fn`s (the total length of a `&[&str]`, and the parts joined into a `[u8; N]`), inner `const` items (`const PARTS: &[&str] = &["INSERT INTO ", <Product as Table>::TABLE, …]; const BYTES: [u8; total_len(PARTS)] = join(PARTS);`) and `core::str::from_utf8` in a `const` build the whole statement as an associated `const`, stored in the binary as one string. It works in a generic impl as long as the inner consts do not mention its parameters; a model that does (`<Page<T> as Table>::TABLE`) fails with E0401, "can't use generic parameters from outer item", and a `static` in a generic function has the same limit, so `LazyLock` would not help there either. | 6, 8 |
 | 33 | **The three `Patch` designs, measured through lagproxy at 5 ms each way** (release build, three runs; a deadpool connection with its statement cache; 70 patches cycling through the 7 non-empty shapes of 3 fields, 20 of them setting a nullable column to NULL): (a) a `SET` list per shape: 7 statements cached, 15.0–15.8 ms a patch (each new shape costs a prepare); (b) `coalesce($n, col)`: 1 statement, 13.8–14.6 ms, and **0 of 20 NULLs written**; (c) `CASE WHEN $f THEN $v ELSE col END`: 1 statement, 13.9–14.7 ms, 20 of 20 NULLs written. With n patchable fields, (a) caches up to 2^n − 1 statements on every pooled connection. shelf uses (c) (§10). | 9 |
+| 34 | **The query builder's value types** (S1c probe, rustc 1.99.1): a trait `Value<T>`, "a value for a column of type `T`", with five impls (`T` itself, `&T` cloned, `&str` for `String`, `T` for `Option<T>`, `&str` for `Option<String>`) has no overlapping impls, and an integer literal infers as the column's type: `Product::ID.gt(3_000_000_000)` on an `i64` column compiles. **One widening impl more (`i32` for `i64`) breaks that**: the literal falls back to `i32`, and rustc refuses it ("literal out of range for `i32`"; `overflowing_literals` is deny by default). So shelf converts no numbers: an `i32` variable for a `bigint` column is a compile error in `#[diagnostic::on_unimplemented]`'s words ("`i32` cannot be compared with a column of type `i64`"), and a column of another model is E0308 ("expected `Expr<Product>`, found `Expr<Order>`"). | 10 |
+| 35 | **An inherent constant shadows a trait constant of the same name**: with `impl Table for Product { const VERSION: … }` and `impl Product { const VERSION: Column<Product, i32> }`, `Product::VERSION` is the column and `<Product as Table>::VERSION` the trait's (S1c probe). shelf's generated and generic code always write the qualified form, so a field called `version` or `table` is safe. | 10 |
+| 36 | **How PostgreSQL types the builder's parameters** (PG 18.6, from `Statement::params()`): `"price" > $1` and `BETWEEN $1 AND $2` take the column's type; `"tags" @> $1` takes the array type (`_text`), `@> ARRAY[$1]` the element; `LIMIT $n` and `OFFSET $n` take `int8`. Against a domain column, `= $1`, `= ANY($1)` and `LIKE $1` all type the parameter as the base type (`text`, `_text`), so a `String` is accepted there, unlike in an `INSERT`. `Vec<&i64>` is sent as `int8[]`. | 10, 11 |
+| 37 | **`insert_many` through `unnest` needs a cast per column, and the prepared single-row `INSERT` supplies them**: `Statement::params()` of `INSERT … VALUES ($1, …)` holds each column's own type (a domain as the domain, an enum by name), with `schema()` and `name()`, so `unnest($1::"s"."sku_d"[], $2::"s"."status_e"[], $3::"pg_catalog"."jsonb"[], …)` accepts exactly what `insert` accepts: a domain newtype, and not a `String` ("error serializing parameter 0", as for one row); the domain's check still runs (23514). **An array column cannot go through `unnest`**: tokio-postgres cannot send `Vec<Vec<String>>` as `text[]` ("error serializing parameter 0"), and `unnest` of a 2-D array flattens it (4 rows from a 2×2). Arrays of unequal length are padded with NULLs (shelf builds them from one slice, so they never differ). | 12 |
+| 38 | **Binary COPY with the `INSERT`'s types, and the guard for #789**: `BinaryCopyInWriter::new(sink, insert.params())` loads a domain newtype, `jsonb` and `text[]`; a value refused on the client ("error serializing parameter 0") leaves the connection usable once the writer is dropped; a bad domain value fails at `finish()` with the check's message, and the connection lives. **Preparing a `COPY` checks nothing**, not even that the table exists (0.7.18 prepares it; the server checks when it runs). Preparing the `INSERT` with a missing column fails cleanly ("column \"nope\" of relation \"p\" does not exist"), while the same `COPY` fails as it starts ("db error") and the next query gets "unexpected message from server" (issue #789). So shelf prepares the `INSERT` before every COPY. | 12 |
+| 39 | **Streams through the executor**: `query_raw(statement, params.iter().copied())` behind a trait method returning `impl Future + Send` works for all four executors and inside `tokio::spawn` (100,000 rows). The `RowStream` it returns does not borrow the client, which is root PLAN §12 #13's hazard with a pool; shelf's stream therefore borrows the executor it reads from. | 12 |
+| 40 | **What `verify` can learn about NULLs** (PG 18.6): a table column's `table_oid()` and `column_id()` lead to `pg_attribute.attnotnull` (one query for all of them, `unnest($1::oid[], $2::int2[])` joined to `pg_attribute`); an expression has neither (`None`). **A view's columns report the view's own OID**, whose `attnotnull` is always false, so `verify` cannot know them and leaves them out (`pg_class.relkind`). Generated columns, virtual and stored, are nullable in the catalog unless declared `NOT NULL`, which PG 18 accepts on a virtual one. | 13 |
+| 41 | **Where the builder's and the relations' type errors land** (trybuild, rustc 1.99.1; `tests/ui/query.rs`, `relations.rs`): `filter(impl Into<Expr<M>>)`, there for raw SQL, turned another model's column into "the trait bound `Expr<Product>: From<Expr<Order>>` is not satisfied … but trait `From<Raw<Product>>` is implemented"; a trait of shelf's own, `Condition<M>`, with `#[diagnostic::on_unimplemented]`, says "`Expr<Order>` is not a condition on `Product`", and rustc adds that `Condition<Order>` is implemented. A relation's generated calls are spanned on the `key = …` tokens (`quote_spanned!`), so a missing column constant (E0599, E0609, with rustc's "a field with a similar name exists") and a foreign key of the wrong type (E0308, and `ForeignKey`'s own message) point into the attribute; one copy of the latter is still reported at `Table`, from the method's return type. A method missing for the column's type (`like` on an `i64`, `is_null` on a `String`) is E0599, with "the method was found for `Column<M, Option<T>>`". | 10, 11 |
+| 42 | **N+1, measured** (`cargo run -p shelf --release --example bench_relations`; 100 orders × 3 lines, median of 3, three runs; release build, rustc 1.99.1, Apple Silicon, PG 18.6 on localhost). Through lagproxy at 5 ms each way (a cached `find` 13.3–13.8 ms): the loop `order.lines(&db)` 2,732–2,753 ms on a `Client` (≈200 round trips: prepare, then query) and 1,348–1,366 ms pooled (≈100, the statement cached); the same loop pipelined with `try_join_all` on one `Client` 32–35 ms (2–3); **`Order::load_lines` 26.7–28.5 ms on a `Client` (2) and 14.0–14.6 ms pooled (1)**. Directly on localhost (a round trip 0.05 ms): the loop 10.6–12.6 ms and 5.0–5.5 ms, pipelined 3.3–3.5 ms, batched 0.4–0.6 ms and 0.2 ms. Pipelining hides the latency of 100 queries but not their work; batching removes both. | 11 |
+| 43 | **A statement cache hides a migration from `verify`**: through deadpool's `prepare_cached`, `SELECT * FROM products` keeps the description it had when first prepared, so after `ALTER TABLE products ALTER COLUMN sku DROP NOT NULL, DROP COLUMN note` on the same pooled connection, `verify` still found `note` and reported only `sku` (its `NOT NULL` comes from a live catalog query). Prepared without the cache (`Executor::prepare_uncached`), both are reported. (`tests/verify.rs`; checked by putting the cached call back, which fails the test.) | 13 |
+| 44 | **Bulk writes through shelf, measured beside pgload** (`cargo run -p shelf --release --example bench_bulk -- [--rows N] [--keyed]`, written by a second session from pgload's code: pgload's rows and its temporary table without constraints, one pooled connection with its statement cache, each run in a transaction rolled back, an md5 fingerprint showing every strategy stores the same rows; median of 3, ranges over 3 runs; release build, rustc 1.99.1, Apple Silicon, PG 18.6 on localhost). **20,000 rows:** `insert` in a loop 0.766–0.774 s, pipelined (64 in flight) 0.147–0.150 s, `insert_many` in batches of 1,000 0.018 s, in one call 0.016–0.017 s, `copy_in` 0.006 s; pgload, run right after: 0.756 s, 0.120 s, `unnest` batches 0.014 s, CSV COPY 0.012 s, binary COPY 0.008 s. **Into a table with a primary key and `NOT NULL` columns (`--keyed`, 5 runs):** loop 0.831–0.851 s, pipelined 0.179–0.190 s, and the batched forms noisy (WAL): batches 0.030–0.091 s, one call 0.029–0.084 s, `copy_in` 0.016–0.033 s. **2,000 rows through lagproxy at 1 ms each way:** loop 9.41–9.76 s, pipelined 0.159–0.165 s, batches 0.013–0.014 s, one call 0.009 s, `copy_in` 0.012–0.013 s; pgload 9.48–9.53 s, 0.192 s, 0.043–0.046 s, 0.045–0.047 s, 0.045–0.046 s. shelf's `copy_in` matches pgload's binary COPY; `insert_many` costs a few ms more than pgload's `unnest` because it returns and maps the rows. | 12 |
+| 45 | **pgload and `bench_bulk` time different spans**, which is why shelf's batched writes look faster through lagproxy (#44): pgload's timer wraps its whole `load()` (`apps/pgload/src/lib.rs`), with `CREATE TEMP TABLE`, `BEGIN`, a `count(*)` sent as a string (prepare, then execute) and `COMMIT`, five round trips besides the strategy; `bench_bulk` times the strategy alone. At 1 ms each way a round trip costs about 6 ms here (two batches of `insert_many`: 13–14 ms), so the five come to about 30 ms, the gap in every row. On localhost they are invisible. | 12 |
+| 46 | **Outside a transaction, each insert pays a commit**: 20,000 inserts pipelined (64 in flight) into a table with a primary key took 0.91–0.98 s when each one committed, and 0.13–0.14 s between one `BEGIN` and `COMMIT` (six runs each, a scratchpad probe on tokio-postgres alone; `synchronous_commit = on`, `wal_sync_method = open_datasync`, PG 18.6 on localhost): a commit waits for its WAL flush. So shelf's loops and pipelines belong in a transaction (main book Chapter 8), and a benchmark must say whether it uses one. | 12, 7 |
 
 ---
 
-## 13. Next steps: phase S1c, step by step
+## 13. Next steps: phase S2, step by step
 
-**Resuming in a new session:** read this section first, then §4.0 and §4.0b (what exists) and
-§12 (what was learnt). Each step is ticked when it is done and its gates are green, and a step
-in progress says how far it got. The work is on the branch `shelf` and may not be committed yet
-(`git status`); commit only when the user asks.
+**Resuming in a new session:** read this section first, then §4.0–§4.0c (what exists), §7's
+Chapter 14 and §12 (what was learnt). Each step is ticked when it is done and its gates are
+green, and a step in progress says how far it got. The work is on the branch `shelf` and may not
+be committed yet (`git status`); commit only when the user asks. **Check first that no other
+session is working in this repository** (§11): two sessions in one working tree overwrite each
+other's files.
 
-**Done before:** S0, S1a and the sketches (2026-11-07); Chapters 0–4 (2026-11-09, ahead of the
-phases that build what later chapters quote); S1b, the model (2026-11-09, §4.0b). S1b changed
-`attrs.rs`, which Chapter 4 quotes, and Chapters 3 and 4 were brought up to date with it; any
-later change to the files they quote must keep `book.py --book orm check` green the same way.
-Open from earlier phases: Chapter 5's question whether an executor should cache `Columns` with
-each prepared statement (not done: `resolve` runs per call, which costs little beside a round
-trip); a serde helper for `Option<Option<T>>` (Chapter 9: check what is current); `json` fields
-on a `Patch`.
+**Done before:** S0, S1a and the sketches (2026-11-07); Chapters 0–4 (2026-11-09); S1b, the
+model, and S1c, queries and relations (2026-11-09, §4.0b, §4.0c). S1c changed `attrs.rs`, which
+Chapter 4 quotes; its excerpts still match. Open from earlier phases: Chapter 0's §0.3 as a
+runnable program (S3a); Chapter 5's question whether an executor should cache `Columns` with
+each prepared statement (not done: `resolve` runs per call); a serde helper for
+`Option<Option<T>>` (Chapter 9: check what is current); `json` fields on a `Patch`; composite
+foreign keys in relations (an exercise, or a later phase).
 
-**S1c, queries and relations** (§4.2–§4.4, Chapters 10–13):
+**S2, the capstone `orm/stockroom-shelf`** (§4.1, §7 Chapter 14, §9):
 
-- [ ] **1. Probes** (in the scratchpad), each recorded in §12:
-  - the query builder's typing: a `&str` for a `String` column and an `i32` literal for an
-    `i64` one (§11), owned parameters (`Box<dyn ToSql + Sync + Send>`), and what a wrong value
-    type or another model's column looks like as a compile error;
-  - relations: `= ANY($1)` with an array of keys (and what a composite key needs), grouping in
-    a `HashMap`, and the N+1 cost through lagproxy;
-  - `insert_many` with `unnest($1::t[], …)`: the casts a domain column needs (main book §12 #1
-    and #4), and binary COPY with types learnt from a prepared `SELECT … LIMIT 0` (main book
-    Chapter 10; a COPY rejected as it starts kills the connection, #789);
-  - streams over `query_raw`: whether `Executor` needs `query_raw`, and resolving once per
-    statement;
-  - `verify`: `Column::table_oid()` and `column_id()` against `pg_attribute.attnotnull` (§12 #6).
-- [ ] **2. The query builder** (`shelf/src/query/`): `Column<M, T>` constants from the `Table`
-  derive (`Product::PRICE_CENTS`), expressions (`eq` … `contains`, `and`, `or`, `not`) rendered
-  with `$n` numbering, `order_by`, `limit`, `offset`, keyset `after`, `count`, `exists`, and a
-  raw SQL fragment as the escape hatch.
-- [ ] **3. Relations**: `belongs_to` and `has_many` (container keys on `Table`), the methods they
-  generate, batched loading with `= ANY($1)`, and the N+1 measurement.
-- [ ] **4. Bulk writes**: `insert_many` through `unnest`, binary COPY from the derive, measured
-  against a loop and pipelined inserts (pgload's table).
-- [ ] **5. Streams**: `query().stream(&db)`, columns resolved once, backpressure.
-- [ ] **6. `verify::<M>(&db)`** and `Error::Schema(Vec<Mismatch>)`.
-- [ ] **7. Tests** for each: expansion, UI (the query builder's compile errors included) and
-  integration tests; measurements in §12 with what they were measured on.
-- [ ] **8. Wrap-up:** all gates (both books); §4 rewritten as built for S1c; the status lines
-  in this file, orm/CLAUDE.md and the root CLAUDE.md; then replace this checklist with S2's
-  (§9), and ask the user about a commit.
+- [ ] **1. Probes** (in the scratchpad), each recorded in §12: what the `stockroom` crate
+  exposes for reuse (its migrations, `domain::{Sku, Address, OrderStatus, Cents}`,
+  `error::AppError`, `db::in_transaction`, the `Db` extractor); shelf models for stockroom's
+  tables, `verify`ed against a migrated database (a domain, a composite, an enum,
+  `Json<Customer>`, a virtual generated column as `generated`); which routes to port (stores,
+  products, orders) and which stockroom tests can drive both routers.
+- [ ] **2. The crate**: `orm/stockroom-shelf`, a library and a binary in the workspace, with
+  stockroom's schema and configuration, and `verify` for every model at startup.
+- [ ] **3. The repository layer on shelf**: stores; products (the keyset `page` with an optional
+  tag filter through the builder, `by_sku`, writes through `Insert` and `Patch` with the
+  version); orders with their lines (`has_many`, loaders), in `in_transaction`.
+- [ ] **4. The routes**: the same axum routes and bodies as stockroom's for what is ported; a
+  streamed listing whose body owns its pooled connection (root §12 #13; `ModelStream` borrows,
+  so the body needs its own owner).
+- [ ] **5. Tests**: the ported routes give the same responses as stockroom's (one test suite,
+  two routers), and the oversell test; integration tests in the crate's own schema.
+- [ ] **6. Measurements** for Chapter 14.3: lines, statements and round trips per ported
+  function, stockroom's against shelf's (a counting executor, as in `tests/relations.rs`).
+- [ ] **7. Wrap-up:** all gates (both books); §4 and §5 as built; the status lines in this file,
+  orm/CLAUDE.md and the root CLAUDE.md; Chapter 14's sketch as built; then replace this
+  checklist with the next phase's (§9: S3a, Chapter 5 and Chapter 0's §0.3), and ask the user
+  about a commit.

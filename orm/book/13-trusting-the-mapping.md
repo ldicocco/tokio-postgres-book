@@ -2,16 +2,17 @@
 
 > **Building an ORM on tokio-postgres** · Previous: [Chapter 12 — Bulk writes and streams](12-bulk-and-streams.md) · Next: [Chapter 14 — Capstone: stockroom on shelf](14-capstone.md)
 
-> **Sketch, 7 November 2026.** A plan of this chapter, not its text; it will be replaced by
-> the chapter. Part III, fourth chapter. Builds on Chapters 4 and 5, and on main book
-> [Chapter 4](../../book/04-prepared-statements.md) (`Statement::columns`) and
+> **Sketch, 9 November 2026 (revised after S1c).** A plan of this chapter, not its text; it
+> will be replaced by the chapter. Part III, fourth chapter. Builds on Chapters 4 and 5, and on
+> main book [Chapter 4](../../book/04-prepared-statements.md) (`Statement::columns`) and
 > [Chapter 17](../../book/17-testing.md) (testing against a real database). shelf:
-> `shelf::verify` and `Error::Schema` in `shelf/src/verify.rs` (proposed, S1c); the test suites
-> (built, S1a): [tests/expand.rs](../shelf-codegen/tests/expand.rs),
-> [tests/ui.rs](../shelf/tests/ui.rs), [tests/from_row.rs](../shelf/tests/from_row.rs) and
-> the harness [tests/common/mod.rs](../shelf/tests/common/mod.rs). Crates: tokio-postgres
-> 0.7.18, trybuild 1.0.122. Findings: PLAN.md §12 #6, #11, #12. Plan:
-> [orm/PLAN.md](../PLAN.md) §6, §7, Chapter 13.
+> `shelf::verify`, `Error::Schema` and `Mismatch` (`shelf/src/verify.rs`, `error.rs`),
+> `Table::FIELDS` and `Executor::prepare_uncached` (built, S1c); the test suites (built, S1a):
+> [tests/expand.rs](../shelf-codegen/tests/expand.rs), [tests/ui.rs](../shelf/tests/ui.rs),
+> [tests/from_row.rs](../shelf/tests/from_row.rs), [tests/verify.rs](../shelf/tests/verify.rs)
+> and the harness [tests/common/mod.rs](../shelf/tests/common/mod.rs). Crates: tokio-postgres
+> 0.7.18, trybuild 1.0.122. Findings: PLAN.md §12 #6, #11, #12, #40, #43. Plan:
+> [orm/PLAN.md](../PLAN.md) §4.0c, §6, §7, Chapter 13; §10 (`verify`).
 
 A struct and a table are two descriptions of the same data, kept in different places by
 different people. A migration renames a column; a column becomes nullable; a `bigint` becomes
@@ -44,12 +45,22 @@ Plan:
 ## 13.2 `verify`
 
 Plan:
-- Prepare the model's `SELECT` (no rows read): `resolve` already checks names and types.
-- Nullability is not in a row description. `Column::table_oid()` and `column_id()` (built
-  into 0.7.18; §12 #6) identify the table column, and `pg_attribute.attnotnull` says whether it
-  can be NULL; a nullable column read into a non-`Option` field is reported.
-- Every mismatch collected into `Error::Schema(Vec<Mismatch>)` (proposed).
-- Computed columns and views have no table OID: `verify` says it cannot know.
+- Prepare `SELECT * FROM` the table (no rows read). Not the model's own `SELECT`: a statement
+  that names a missing column fails at the first one, and `verify` wants them all. The derive
+  lists each field's column and the type it reads in `Table::FIELDS` (`Field::new::<T>`, `fn`
+  pointers to `column::<T>` and a NULL test), and each is checked against the statement.
+- Prepared without the statement cache (`Executor::prepare_uncached`): a cached statement
+  describes the table as it was, and a test shows `verify` missing a dropped column through
+  deadpool's cache (§12 #43).
+- Nullability is not in a row description. `Column::table_oid()` and `column_id()` (§12 #6)
+  identify the table column, and `pg_attribute.attnotnull`, one query for every column, says
+  whether it can be NULL; a nullable column read into a field that refuses NULL is
+  `Mapping::Nullable`. A generated column is nullable unless declared `NOT NULL`, which PG 18
+  allows on a virtual one (§12 #40).
+- A view's columns report the view's own OID, where every column looks nullable: `verify`
+  checks their names and types and leaves NULLs alone (`pg_class.relkind`).
+- Every mismatch in `Error::Schema { model, mismatches }`, in field order; its message,
+  captured from the test, printed.
 
 ## 13.3 Where to run it
 
@@ -92,8 +103,8 @@ Plan:
 
 ## Side by side
 
-Catching a renamed column: by hand (at the first query) · shelf (`verify` at startup,
-proposed) · sqlx (`query_as!` at compile time, check).
+Catching a renamed column: by hand (at the first query) · shelf (`verify` at startup) · sqlx
+(`query_as!` at compile time, check).
 
 ## Claims
 
@@ -114,9 +125,10 @@ Plan:
    `resolve` used.
 3. Write an expansion test for a struct of your own. *Hint:* add a file to `tests/expand/`.
 
-> **Open questions.** (1) Views and computed columns: report "unknown" or skip. (2) The report
-> format of `Error::Schema`. (3) Whether `verify` should also check `New…` structs against
-> `NOT NULL` columns without defaults.
+> **Open questions.** Settled in S1c (PLAN.md §10): a view's columns are checked for names and
+> types, not NULLs; `Error::Schema { model, mismatches }`, in field order; `New…` structs are
+> not checked (an exercise). Still open: whether exercise 1 needs a trait object over models
+> (`verify` is generic) or a list of function pointers.
 
 ---
 

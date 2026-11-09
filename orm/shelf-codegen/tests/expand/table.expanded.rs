@@ -39,6 +39,11 @@ impl ::shelf::Table for Product {
     const KEY_COLUMNS: &'static [&'static ::core::primitive::str] = &["\"id\""];
     const VERSION: ::core::option::Option<&'static ::core::primitive::str> = ::core::option::Option::None;
     const UPDATED_AT: ::core::option::Option<&'static ::core::primitive::str> = ::core::option::Option::None;
+    const FIELDS: &'static [::shelf::__private::Field] = &[
+        ::shelf::__private::Field::new::<i64>("id", "id"),
+        ::shelf::__private::Field::new::<String>("sku", "sku"),
+        ::shelf::__private::Field::new::<String>("type", "type"),
+    ];
     fn key(&self) -> Self::Key {
         ::core::clone::Clone::clone(&self.id)
     }
@@ -59,6 +64,20 @@ impl ::shelf::Table for Product {
             ::shelf::__private::param(&self.r#type),
         ])
     }
+}
+#[automatically_derived]
+#[allow(dead_code)]
+impl Product {
+    /// The column `"id"`, for the query builder.
+    const ID: ::shelf::query::Column<Self, i64> = ::shelf::query::Column::new("\"id\"");
+    /// The column `"sku"`, for the query builder.
+    const SKU: ::shelf::query::Column<Self, String> = ::shelf::query::Column::new(
+        "\"sku\"",
+    );
+    /// The column `"type"`, for the query builder.
+    const TYPE: ::shelf::query::Column<Self, String> = ::shelf::query::Column::new(
+        "\"type\"",
+    );
 }
 #[automatically_derived]
 impl ::shelf::FromRow for OrderLine {
@@ -112,6 +131,11 @@ impl ::shelf::Table for OrderLine {
     ];
     const VERSION: ::core::option::Option<&'static ::core::primitive::str> = ::core::option::Option::None;
     const UPDATED_AT: ::core::option::Option<&'static ::core::primitive::str> = ::core::option::Option::None;
+    const FIELDS: &'static [::shelf::__private::Field] = &[
+        ::shelf::__private::Field::new::<i64>("order_id", "orderId"),
+        ::shelf::__private::Field::new::<i32>("line_no", "lineNo"),
+        ::shelf::__private::Field::new::<i64>("unit_price", "unitPrice"),
+    ];
     fn key(&self) -> Self::Key {
         (
             ::core::clone::Clone::clone(&self.order_id),
@@ -135,4 +159,20 @@ impl ::shelf::Table for OrderLine {
     > {
         ::std::vec::Vec::from([::shelf::__private::param(&self.unit_price)])
     }
+}
+#[automatically_derived]
+#[allow(dead_code)]
+impl OrderLine {
+    /// The column `"orderId"`, for the query builder.
+    const ORDER_ID: ::shelf::query::Column<Self, i64> = ::shelf::query::Column::new(
+        "\"orderId\"",
+    );
+    /// The column `"lineNo"`, for the query builder.
+    const LINE_NO: ::shelf::query::Column<Self, i32> = ::shelf::query::Column::new(
+        "\"lineNo\"",
+    );
+    /// The column `"unitPrice"`, for the query builder.
+    const UNIT_PRICE: ::shelf::query::Column<Self, i64> = ::shelf::query::Column::new(
+        "\"unitPrice\"",
+    );
 }

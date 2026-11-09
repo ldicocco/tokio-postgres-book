@@ -2,7 +2,7 @@
 
 > **Building an ORM on tokio-postgres** · Previous: [Chapter 6 — Tables: the model derive](06-tables.md) · Next: [Chapter 8 — Writing rows: insert, update, delete, upsert](08-writing.md)
 
-> **Sketch, 9 November 2026.** A plan of this chapter, not its text; it will be replaced by
+> **Sketch, 9 November 2026 (revised after S1c).** A plan of this chapter, not its text; it will be replaced by
 > the chapter. Part II, second chapter. Builds on Chapter 6, and on main book
 > [Chapter 4](../../book/04-prepared-statements.md) (round trips),
 > [Chapter 6](../../book/06-errors.md) (`DbError`, `SqlState`),
@@ -47,7 +47,9 @@ Plan:
 
 Plan:
 - The calls shelf needs: `prepare` (cached where possible), `query`, `query_one`, `query_opt`,
-  `execute` (built).
+  `execute` (built, S1b); `query_raw` for streams, `copy_in` for COPY, and `prepare_uncached`
+  for `verify` (built, S1c; Chapters 12 and 13). The trait is not sealed: an executor of your
+  own can wrap another, as Chapter 11's counting executor does.
 - Methods returning `impl Future<Output = …> + Send`, and a **Rust refresher** on why the
   `Send` must be written: a handler's future must be `Send`, and a trait method's future is
   not known to be unless the trait says so. The error `async fn` in the trait gives, with

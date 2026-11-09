@@ -47,6 +47,15 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
             ));
         }
     }
+    for relation in &container.relations {
+        errors.push(Error::new(
+            relation.span,
+            format!(
+                "`{}` belongs on the model: a Patch changes its model's table",
+                relation.value.kind.key()
+            ),
+        ));
+    }
 
     let mut columns = Vec::new(); // (field, quoted column)
     let mut version = None; // the field that holds the version the patch expects

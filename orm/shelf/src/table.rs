@@ -7,7 +7,9 @@ use tokio_postgres::types::ToSql;
 use crate::error::Error;
 use crate::executor::Executor;
 use crate::fetch::{fetch_all, fetch_opt};
+use crate::query::Query;
 use crate::row::FromRow;
+use crate::verify::Field;
 use crate::write::written;
 
 /// A model: a [`FromRow`] type that is a table's row, with a key. Usually derived:
@@ -49,6 +51,10 @@ pub trait Table: FromRow + Send + Sync {
     const VERSION: Option<&'static str>;
     /// The `#[shelf(updated_at)]` column, quoted: an update sets it to `now()`.
     const UPDATED_AT: Option<&'static str>;
+    /// Each field that reads a column, with the type it reads: what [`verify`](crate::verify)
+    /// checks.
+    #[doc(hidden)]
+    const FIELDS: &'static [Field];
 
     /// This row's key.
     fn key(&self) -> Self::Key;
@@ -82,6 +88,11 @@ pub trait Table: FromRow + Send + Sync {
     /// Every row, ordered by the key.
     fn all(db: &impl Executor) -> impl Future<Output = Result<Vec<Self>, Error>> + Send {
         async move { fetch_all(db, Self::ALL, &[]).await }
+    }
+
+    /// A query on this table, to filter, order and page (the [`query`](crate::query) module).
+    fn query() -> Query<Self> {
+        Query::new()
     }
 
     /// The number of rows.

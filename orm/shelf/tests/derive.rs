@@ -55,6 +55,24 @@ struct NewOrder<'a> {
     r#type: &'a String,
 }
 
+// Relations both ways, through a foreign key that is a raw identifier and nullable.
+#[allow(dead_code)]
+#[derive(shelf::FromRow, shelf::Table)]
+#[shelf(table = "customer", has_many(Invoice, key = r#for, as = invoices))]
+struct Customer {
+    #[shelf(primary_key)]
+    id: i64,
+}
+
+#[allow(dead_code)]
+#[derive(shelf::FromRow, shelf::Table)]
+#[shelf(table = "invoice", belongs_to(Customer, key = r#for))]
+struct Invoice {
+    #[shelf(primary_key)]
+    id: i64,
+    r#for: Option<i64>,
+}
+
 fn implements_from_row<T: shelf::FromRow>() {}
 fn implements_table<T: shelf::Table>() {}
 fn implements_upsert<T: shelf::Upsert>() {}
@@ -70,4 +88,10 @@ fn derived_structs_implement_from_row() {
 fn derived_models_implement_table() {
     implements_table::<Order>();
     implements_upsert::<NewOrder<'static>>();
+    implements_table::<Customer>();
+    implements_table::<Invoice>();
+    // The column constants and relation methods exist, named after the raw fields.
+    assert_eq!(Invoice::FOR.name(), r#""for""#);
+    let _ = Customer::load_invoices::<tokio_postgres::Client>;
+    let _ = Invoice::customer::<tokio_postgres::Client>;
 }

@@ -2,7 +2,7 @@
 
 > **Building an ORM on tokio-postgres** · Previous: [Chapter 5 — Checking a statement once, not every row](05-column-indices.md) · Next: [Chapter 7 — The executor and shelf's errors](07-executor.md)
 
-> **Sketch, 9 November 2026.** A plan of this chapter, not its text; it will be replaced by
+> **Sketch, 9 November 2026 (revised after S1c).** A plan of this chapter, not its text; it will be replaced by
 > the chapter. Part II, first chapter. Builds on Chapters 3–5, and on main book
 > [Chapter 2](../../book/02-queries.md) (`quote_ident`), [Chapter 4](../../book/04-prepared-statements.md)
 > (the "cached plan must not change result type" error) and
@@ -126,7 +126,7 @@ Plan:
 
 > **Open questions.** Settled in S1b (PLAN.md §10): the trait's items; a composite key as an
 > owned tuple, `find(&db, &(store, product))`; compile-time joining rather than `LazyLock`; and
-> `count` here, not in the query builder. Still open: whether `flatten` can join a model once
+> `count` here, and since S1c also on a query, for its filtered rows. Still open: whether `flatten` can join a model once
 > `FromRow` knows its own columns.
 
 ---

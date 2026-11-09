@@ -11,16 +11,20 @@
 //! - `attrs` parses the `#[shelf(…)]` attributes, for every derive, and decides which derive
 //!   reports which mistake.
 //! - `case` holds the conventions of `rename_all`.
+//! - `columns` writes the query builder's column constants, which `Table` adds to a model.
 //! - `generics` adds the bounds a generic struct's fields need.
+//! - `relations` writes the methods of `has_many` and `belongs_to`, which `Table` adds.
 //! - `sql` quotes identifiers and writes the pieces of SQL the derives share.
 //!
 //! `tests/expand/` pins down what each derive generates (see `tests/expand.rs`).
 
 mod attrs;
 mod case;
+mod columns;
 pub mod from_row;
 mod generics;
 pub mod insert;
 pub mod patch;
+mod relations;
 mod sql;
 pub mod table;

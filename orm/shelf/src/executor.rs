@@ -8,8 +8,9 @@
 
 use std::future::Future;
 
+use bytes::Bytes;
 use tokio_postgres::types::ToSql;
-use tokio_postgres::{Error, Row, Statement};
+use tokio_postgres::{CopyInSink, Error, Row, RowStream, Statement};
 
 /// A connection or transaction shelf can run statements on.
 ///
@@ -22,6 +23,13 @@ use tokio_postgres::{Error, Row, Statement};
 pub trait Executor: Sync {
     /// A prepared statement for `sql`, from the cache when the executor has one.
     fn prepare(&self, sql: &str) -> impl Future<Output = Result<Statement, Error>> + Send;
+
+    /// A prepared statement for `sql`, never from a cache: the server's description now.
+    /// [`verify`](crate::verify) needs it, since a cached statement describes a table as it was
+    /// when it was prepared. By default, [`prepare`](Executor::prepare).
+    fn prepare_uncached(&self, sql: &str) -> impl Future<Output = Result<Statement, Error>> + Send {
+        self.prepare(sql)
+    }
 
     /// Every row `statement` returns.
     fn query(
@@ -50,6 +58,23 @@ pub trait Executor: Sync {
         statement: &Statement,
         params: &[&(dyn ToSql + Sync)],
     ) -> impl Future<Output = Result<u64, Error>> + Send;
+
+    /// Starts `statement` and returns its rows as they arrive, for streams. The `RowStream` does
+    /// not borrow the connection, which serves no one else until the stream is finished or
+    /// dropped.
+    fn query_raw(
+        &self,
+        statement: &Statement,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> impl Future<Output = Result<RowStream, Error>> + Send;
+
+    /// Starts a `COPY … FROM STDIN` and returns the sink its data goes into. A COPY the server
+    /// rejects as it starts leaves a tokio-postgres 0.7.18 connection unusable (issue #789), so
+    /// shelf checks the table and columns first (orm/PLAN.md §12 #38).
+    fn copy_in(
+        &self,
+        statement: &Statement,
+    ) -> impl Future<Output = Result<CopyInSink<Bytes>, Error>> + Send;
 }
 
 /// Implements [`Executor`] for `$ty` by calling `$target`'s methods (which `$ty` derefs to),
@@ -59,6 +84,13 @@ macro_rules! executor {
         impl Executor for $ty {
             fn prepare(&self, sql: &str) -> impl Future<Output = Result<Statement, Error>> + Send {
                 self.$prepare(sql)
+            }
+
+            fn prepare_uncached(
+                &self,
+                sql: &str,
+            ) -> impl Future<Output = Result<Statement, Error>> + Send {
+                <$target>::prepare(self, sql)
             }
 
             fn query(
@@ -91,6 +123,21 @@ macro_rules! executor {
                 params: &[&(dyn ToSql + Sync)],
             ) -> impl Future<Output = Result<u64, Error>> + Send {
                 <$target>::execute(self, statement, params)
+            }
+
+            fn query_raw(
+                &self,
+                statement: &Statement,
+                params: &[&(dyn ToSql + Sync)],
+            ) -> impl Future<Output = Result<RowStream, Error>> + Send {
+                <$target>::query_raw(self, statement, params.iter().copied())
+            }
+
+            fn copy_in(
+                &self,
+                statement: &Statement,
+            ) -> impl Future<Output = Result<CopyInSink<Bytes>, Error>> + Send {
+                <$target>::copy_in(self, statement)
             }
         }
     };

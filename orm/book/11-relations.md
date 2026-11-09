@@ -2,14 +2,16 @@
 
 > **Building an ORM on tokio-postgres** · Previous: [Chapter 10 — A typed query builder](10-query-builder.md) · Next: [Chapter 12 — Bulk writes and streams](12-bulk-and-streams.md)
 
-> **Sketch, 7 November 2026.** A plan of this chapter, not its text; it will be replaced by
-> the chapter. Part III, second chapter. Builds on Chapters 6, 7 and 10, and on main book
-> [Chapter 3](../../book/03-rows-and-types.md) (arrays as parameters),
+> **Sketch, 9 November 2026 (revised after S1c).** A plan of this chapter, not its text; it
+> will be replaced by the chapter. Part III, second chapter. Builds on Chapters 6, 7 and 10,
+> and on main book [Chapter 3](../../book/03-rows-and-types.md) (arrays as parameters),
 > [Chapter 7](../../book/07-pipelining.md) (pipelining) and lagproxy
-> ([apps/lagproxy](../../apps/lagproxy/)). shelf: the `belongs_to` and `has_many` attributes,
-> their generated methods, and `shelf/src/relations.rs` (proposed, S1c). Crates:
-> tokio-postgres 0.7.18. Findings: root PLAN.md §12 #21, #33. Plan: [orm/PLAN.md](../PLAN.md)
-> §4.3, §7, Chapter 11.
+> ([apps/lagproxy](../../apps/lagproxy/)). shelf: the `has_many` and `belongs_to` keys in
+> `attrs.rs`, the methods in `shelf-codegen/src/relations.rs`, the loaders in
+> `shelf/src/relations.rs` (built, S1c); tests `tests/relations.rs`, `tests/ui/relations.rs`;
+> the benchmark `examples/bench_relations.rs`. Crates: tokio-postgres 0.7.18, futures-util.
+> Findings: §12 #41, #42; root PLAN.md §12 #21. Plan: [orm/PLAN.md](../PLAN.md) §4.0c, §7,
+> Chapter 11; §10 (relations).
 
 An order has lines. Showing a page of fifty orders with their lines is the textbook case where
 an ORM is either a great help or a disaster. The disaster is the obvious loop: fetch the
@@ -39,41 +41,54 @@ loading at all.
 
 Plan:
 - `#[shelf(has_many(OrderLine, key = order_id, as = lines))]` on `Order`;
-  `#[shelf(belongs_to(Order, key = order_id))]` on `OrderLine` (proposed syntax; PLAN.md
-  §4.3). Names are explicit: no pluralizing.
-- Generated (proposed): `order.lines(&db)`, `Order::load_lines(&db, &orders)`,
-  `line.order(&db)`.
+  `#[shelf(belongs_to(Order, key = order_id))]` on `OrderLine`. `has_many` needs `as`: no
+  pluralizing; `belongs_to` takes the model's name in snake case (`order_line`) unless `as`
+  says otherwise. Parsing `as`, a keyword, works because syn's nested-meta paths accept
+  keywords (`Ident::parse_any`). A **Macro lens** on `key = …`: it names a field of the *other*
+  struct for `has_many`, which the derive cannot see, so the generated code names
+  `OrderLine::ORDER_ID` and `line.order_id` and lets the compiler check them, spanned on the
+  attribute's tokens (the captured errors of `tests/ui/relations.stderr`, §12 #41).
+- Generated: `order.lines(&db) -> Vec<OrderLine>`, `Order::load_lines(&db, &orders) ->
+  Vec<Vec<OrderLine>>` (aligned with `orders`), `line.order(&db) -> Order` (an `Option` when
+  the field is written `Option<…>`), `OrderLine::load_order(&db, &lines) -> HashMap<i64,
+  Order>`; the expansion of `relations.rs` printed.
 
 ## 11.2 N+1, measured
 
 Draft prose:
 
-Through lagproxy at 5 ms each way, one round trip cost 15.3 ms on this machine (root PLAN.md §12
-#33). Fifty orders and their lines fetched one order at a time is fifty-one of them, three
-quarters of a second before the server has done any real work, and the time grows with the
-page size. The loop is not slow because PostgreSQL is slow; it is slow because it waits for
-the network fifty-one times.
+Through lagproxy at 5 ms each way, one round trip cost 13.3–13.8 ms on this machine (§12 #42).
+Loading the lines of a hundred orders one order at a time took 2.7 seconds on a plain `Client`,
+which prepares every statement and so pays two round trips per order, and 1.35 seconds on a
+pooled connection, whose statement cache brings it down to one. The loop is not slow because
+PostgreSQL is slow; on localhost the same loop took 5 to 12 milliseconds. It is slow because it
+waits for the network a hundred times.
 
 Plan:
-- The loop and its time through lagproxy (to measure); the server's own time from
-  `EXPLAIN ANALYZE` beside it, to show where the time goes.
+- The loop timed through lagproxy, and counted with an executor of our own that wraps a client
+  and counts its statements (`Counting` in `tests/relations.rs`: `Executor` is not sealed).
 
 ## 11.3 Batched loading
 
 Plan:
-- One query, `WHERE order_id = ANY($1)` with the orders' keys as an array, then a `HashMap`
-  from key to children; the loader returns the children in the parents' order.
-- Measured through lagproxy: two round trips for the page, whatever its size (to measure).
-- The foreign key type needs `Hash + Eq`; a composite key needs a tuple (open question).
+- One query through the builder, `WHERE "order_id" = ANY($1)` with the orders' keys as one
+  array, then a `HashMap` from key to children; the loader returns them in the parents' order.
+  A nullable foreign key (`ForeignKey`, implemented for `K` and `Option<K>`) skips NULLs.
+- Measured through lagproxy (§12 #42): 26.7–28.5 ms on a `Client` (two round trips, prepare
+  and query) and 14.0–14.6 ms pooled (one), against 2.7 s and 1.35 s for the loop.
+- Keys need `Hash + Eq + Clone`; relations follow single-column keys (`has_many` on a model
+  with a composite key is refused at the attribute).
 
 ## 11.4 Pipelining independent loads
 
 Plan:
 - Lines and the store for a page of orders: two loaders, independent, joined with `try_join!`
-  on one connection, costing about one round trip (main book Chapter 7; §12 #21: one pipelined
-  client beat a pool over latency).
-- Which executors allow it: a shared `Client`, not a `Transaction` held mutably (check with
-  the executor of Chapter 7).
+  on one connection (a test does), costing about one round trip (main book Chapter 7; root §12
+  #21: one pipelined client beat a pool over latency). Every executor allows it: the loaders
+  take `&db`, and a `Transaction` is shared by reference too.
+- Pipelining the N+1 loop itself (`try_join_all` of `order.lines(&db)`) took 32–35 ms through
+  lagproxy, nearly the batched time, but on localhost 3.3–3.5 ms against 0.2 ms batched: it
+  hides the latency of a hundred queries, not their work (§12 #42).
 
 ## 11.5 Joins
 
@@ -94,14 +109,16 @@ Plan:
 
 - `needs=lagproxy` (proposed): the N+1 loop timed.
 - `needs=lagproxy`: the batched loader timed; asserts it is at least ten times faster than the
-  loop for fifty orders (relative; to measure).
+  loop for fifty orders (relative; for a hundred orders, 95–100× in release, §12 #42; to
+  check in a debug build).
+- `run`: the counting executor: the loop runs 101 statements, the loader 2.
 - `needs=lagproxy`: two loaders pipelined with `try_join!`.
 - `run`: a join with `flatten`, and `json_agg` into `Json<Vec<…>>`.
 
 ## Side by side
 
 Orders with their lines: by hand (stockroom's `orders::get`, two pipelined queries) · shelf
-(`Order::load_lines`, proposed) · SeaORM (`find_with_related`, check).
+(`Order::load_lines`) · SeaORM (`find_with_related`, check).
 
 ## The data
 
@@ -110,8 +127,8 @@ stockroom's schema in the capstone.
 
 ## Claims
 
-- Measured: root PLAN.md §12 #33 (a round trip through lagproxy), #21 (pipelining against a
-  pool); N+1 against batched (to measure).
+- Measured: §12 #42 (N+1, pipelined and batched, through lagproxy and on localhost); root
+  PLAN.md §12 #21 (pipelining against a pool).
 - Opinion: no lazy loading; every round trip should be visible at the call site.
 
 ## When not to use relation loaders
@@ -127,9 +144,9 @@ Plan:
 2. Return lines ordered by a column, inside each group. *Hint:* order in SQL, group in Rust.
 3. Write the `json_agg` version as a `FromRow` struct. *Hint:* `#[shelf(json)]`.
 
-> **Open questions.** (1) The names and signatures of the generated methods, and whether the
-> loader returns a `HashMap` or a `Vec` of pairs. (2) Composite foreign keys. (3) Whether
-> loaders can be pipelined through the `Executor` trait as designed in Chapter 7 (check).
+> **Open questions.** Settled in S1c (PLAN.md §10): the names and signatures; a `Vec` per
+> parent for `has_many`, a `HashMap` for `belongs_to`; single-column keys only; pipelining
+> works through any executor. Still open: whether composite foreign keys become an exercise.
 
 ---
 

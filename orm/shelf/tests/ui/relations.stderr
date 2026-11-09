@@ -1,0 +1,128 @@
+error: `has_many` needs `as = …`, the name of the method it generates (shelf does not guess plurals): has_many(OrderLine, key = order_id, as = lines)
+ --> tests/ui/relations.rs:5:27
+  |
+5 | #[shelf(table = "orders", has_many(OrderLine, key = order_id))]
+  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: `has_many` needs the related model first: has_many(OrderLine, key = order_id, as = lines)
+  --> tests/ui/relations.rs:12:27
+   |
+12 | #[shelf(table = "orders", has_many(key = order_id, as = lines))]
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: unknown key in `belongs_to`; expected the model, `key = …` and `as = …`
+  --> tests/ui/relations.rs:19:61
+   |
+19 | #[shelf(table = "orders", belongs_to(Order, key = order_id, through = x))]
+   |                                                             ^^^^^^^
+
+error: `has_many` loads by this model's key, which must be one column: a relation follows a single-column key
+  --> tests/ui/relations.rs:27:26
+   |
+27 | #[shelf(table = "stock", has_many(OrderLine, key = order_id, as = lines))]
+   |                          ^^^^^^^^
+
+error: `belongs_to`'s key is a field marked `skip`, which is not a column
+  --> tests/ui/relations.rs:51:56
+   |
+51 | #[shelf(table = "order_lines", belongs_to(Order, key = order))]
+   |                                                        ^^^^^
+
+error: `belongs_to`'s key is a field of `NoField` that holds the foreign key; it has no field `order_no` (NoField points at `Order`'s key)
+  --> tests/ui/relations.rs:60:56
+   |
+60 | #[shelf(table = "order_lines", belongs_to(Order, key = order_no))]
+   |                                                        ^^^^^^^^
+
+error: `belongs_to` belongs on the model: an Insert struct writes to its model's table
+  --> tests/ui/relations.rs:76:28
+   |
+76 | #[shelf(model = OrderLine, belongs_to(Order, key = order_id))]
+   |                            ^^^^^^^^^^
+
+error[E0599]: no associated function or constant named `ORDERID` found for struct `OrderLine` in the current scope
+  --> tests/ui/relations.rs:36:53
+   |
+36 | #[shelf(table = "orders", has_many(OrderLine, key = orderid, as = lines))]
+   |                                                     ^^^^^^^ associated function or constant not found in `OrderLine`
+...
+44 | struct OrderLine {
+   | ---------------- associated function or constant `ORDERID` not found for this struct
+   |
+help: there is an associated constant `ORDER_ID` with a similar name
+   |
+36 - #[shelf(table = "orders", has_many(OrderLine, key = orderid, as = lines))]
+36 + #[shelf(table = "orders", has_many(OrderLine, key = ORDER_ID, as = lines))]
+   |
+
+error[E0609]: no field `orderid` on type `&OrderLine`
+  --> tests/ui/relations.rs:36:53
+   |
+36 | #[shelf(table = "orders", has_many(OrderLine, key = orderid, as = lines))]
+   |                                                     ^^^^^^^ unknown field
+   |
+help: a field with a similar name exists
+   |
+36 | #[shelf(table = "orders", has_many(OrderLine, key = order_id, as = lines))]
+   |                                                          +
+
+error[E0308]: mismatched types
+  --> tests/ui/relations.rs:68:50
+   |
+68 | #[shelf(table = "notes", belongs_to(Order, key = order_id))]
+   |                                                  ^^^^^^^^
+   |                                                  |
+   |                                                  expected `&i64`, found `&i32`
+   |                                                  arguments to this function are incorrect
+   |
+   = note: expected reference `&i64`
+              found reference `&i32`
+note: associated function defined here
+  --> src/table.rs
+   |
+   |     fn find(
+   |        ^^^^
+
+error[E0277]: a foreign key of type `i32` cannot refer to a key of type `i64`
+  --> tests/ui/relations.rs:68:50
+   |
+68 | #[shelf(table = "notes", belongs_to(Order, key = order_id))]
+   |                                                  ^^^^^^^^ the foreign key's field
+   |
+   = help: the trait `shelf::__private::ForeignKey<i64>` is not implemented for `i32`
+   = note: a foreign key has the type of the key it refers to, or an `Option` of it
+help: the trait `shelf::__private::ForeignKey<K>` is implemented for `Option<K>`
+  --> src/relations.rs
+   |
+   | impl<K> ForeignKey<K> for Option<K> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `shelf::__private::load_parents`
+  --> src/relations.rs
+   |
+   | pub fn load_parents<'a, P, C, F, E>(
+   |        ------------ required by a bound in this function
+...
+   |     F: ForeignKey<P::Key>,
+   |        ^^^^^^^^^^^^^^^^^^ required by this bound in `load_parents`
+
+error[E0277]: a foreign key of type `i32` cannot refer to a key of type `i64`
+  --> tests/ui/relations.rs:67:19
+   |
+67 | #[derive(FromRow, Table)]
+   |                   ^^^^^ the foreign key's field
+   |
+   = help: the trait `shelf::__private::ForeignKey<i64>` is not implemented for `i32`
+   = note: a foreign key has the type of the key it refers to, or an `Option` of it
+help: the trait `shelf::__private::ForeignKey<K>` is implemented for `Option<K>`
+  --> src/relations.rs
+   |
+   | impl<K> ForeignKey<K> for Option<K> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `shelf::__private::load_parents`
+  --> src/relations.rs
+   |
+   | pub fn load_parents<'a, P, C, F, E>(
+   |        ------------ required by a bound in this function
+...
+   |     F: ForeignKey<P::Key>,
+   |        ^^^^^^^^^^^^^^^^^^ required by this bound in `load_parents`

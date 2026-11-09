@@ -37,6 +37,26 @@ pub enum Error {
         current_version: i64,
     },
 
+    /// [`verify`](crate::verify) found that a model does not match its table: every field that
+    /// would fail to read, at once.
+    #[error("{model} does not match its table: {}", Mismatch::list(.mismatches))]
+    Schema {
+        /// The model.
+        model: &'static str,
+        /// What does not fit, field by field, in field order.
+        mismatches: Vec<Mismatch>,
+    },
+
+    /// A call shelf cannot make for this model: `insert_many` with an array column, which
+    /// `unnest` would flatten, or a COPY of a row with no columns.
+    #[error("{model}: {message}")]
+    Unsupported {
+        /// The model.
+        model: &'static str,
+        /// What cannot be done, and what to do instead.
+        message: String,
+    },
+
     /// The database, the connection, or the driver.
     #[error(transparent)]
     Db(#[from] tokio_postgres::Error),
@@ -63,10 +83,36 @@ pub enum Mapping {
     #[error("column {column:?} is NULL; read it into an Option")]
     Null { column: String },
 
+    /// The table's column can hold NULL, and the field cannot take one: found by
+    /// [`verify`](crate::verify), from the catalog, before any row is NULL.
+    #[error(
+        "column {column:?} can be NULL in the table; read it into an Option, or make it NOT NULL"
+    )]
+    Nullable { column: String },
+
     /// The value could not be decoded, or a `try_from` conversion refused it.
     #[error("column {column:?}: {source}")]
     Decode {
         column: String,
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+}
+
+/// One field of a model that does not fit its table: part of [`Error::Schema`].
+#[derive(Debug)]
+pub struct Mismatch {
+    /// The field.
+    pub field: &'static str,
+    /// Why it does not fit.
+    pub problem: Mapping,
+}
+
+impl Mismatch {
+    fn list(mismatches: &[Mismatch]) -> String {
+        let all: Vec<String> = mismatches
+            .iter()
+            .map(|m| format!("{}: {}", m.field, m.problem))
+            .collect();
+        all.join("; ")
+    }
 }

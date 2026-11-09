@@ -1,0 +1,12 @@
+error[E0505]: cannot move out of `client` because it is borrowed
+  --> tests/ui/stream.rs:14:10
+   |
+10 |     let client = pool.get().await.unwrap();
+   |         ------ binding `client` declared here
+11 |     let mut rows = shelf::fetch_stream::<Number>(&client, "SELECT 1::bigint AS n", &[])
+   |                                                  ------- borrow of `client` occurs here
+...
+14 |     drop(client); // back to the pool, with the stream unfinished
+   |          ^^^^^^ move out of `client` occurs here
+15 |     let first = futures_util::TryStreamExt::try_next(&mut rows).await.unwrap();
+   |                                                      --------- borrow later used here
