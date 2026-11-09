@@ -14,8 +14,10 @@ Status: **Phases S0 (scaffold) and S1a (the mapping) done on 2026-11-07**, on th
 `shelf`. `#[derive(FromRow)]` is complete (§4.0): attributes, errors at the right tokens,
 generics, tuples, one check per statement, and the `fetch_*` helpers, with expansion, UI and
 integration tests and a benchmark. Every chapter has a **sketch** in its place
-([SKETCHES.md](SKETCHES.md)), and the book PDF, `orm/book/shelf-book.pdf`, shows them all
-(114 pages). The next phase is S1b, the model (§9, and §13 step by step).
+([SKETCHES.md](SKETCHES.md)). **Chapters 0–3 were written on 2026-11-09**, ahead of S1b at the
+user's request (§10): Chapters 1–3 are `current`, and Chapter 0 is a `draft` until its §0.3 can
+run (after S1c). The book PDF, `orm/book/shelf-book.pdf`, shows the written chapters and the
+sketches. The next phase is S1b, the model (§9, and §13 step by step).
 
 ---
 
@@ -565,7 +567,7 @@ as in the main book, so that every excerpt quotes real code.
 | **S1b. shelf: the model** | `Table`, `Insert` and `Patch`; `Executor` with the `deadpool` feature; `shelf::Error`; CRUD and upsert; `version` and `updated_at`; the `Patch` design chosen by measurement | The gates pass; the statement-strategy and `Patch` measurements are in §12 |
 | **S1c. shelf: queries and relations** | The query builder, relations, `insert_many` and COPY, streams, and `verify` | The gates pass; the N+1 and bulk tables are in §12; the query builder's compile errors have UI tests |
 | **S2. stockroom-shelf** | The capstone app and its tests | The gates pass; the ported routes give the same responses as stockroom's |
-| **S3a. Part I** | Chapters 0–5 | `book.py --book orm check` passes, including excerpts and links; the chapters are `current` |
+| **S3a. Part I** (Chapters 0–3 written 2026-11-09, ahead of S1b) | Chapters 0–5 | `book.py --book orm check` passes, including excerpts and links; the chapters are `current` |
 | **S3b. Part II** | Chapters 6–9 | The same |
 | **S3c. Part III** | Chapters 10–14 and the appendix | The same |
 | **S4. Polish and merge** | The book PDF, a read-through, a coverage audit against §5, and merging `shelf` into `main` | `book.py --book orm list` shows every chapter `current` and the PDF fresh |
@@ -590,6 +592,12 @@ as in the main book, so that every excerpt quotes real code.
 | SQL for model CRUD | literals generated at compile time; `LazyLock` where a literal cannot be built | building SQL at run time on every call |
 | The capstone | a port of part of stockroom, reusing the `stockroom` crate | a new domain |
 | Chapters not written yet | a sketch in each chapter's place, in the PDF (as *Decisions in the Loop* does; requested 2026-11-07) | sketches in a separate document; planned chapters left out |
+| Writing Chapters 0–3 before S1b | done on 2026-11-09, at the user's request: they quote only what S1a built (`FromRow`, the tuples, `fetch_*`, `pretty`), and `book.py excerpts` flags any drift when S1b changes those files | waiting for S1b–S2, as §9 orders |
+| Chapter 0's §0.3 (the API in ten lines) | the target design as a `~~~rust` illustration, marked as such; it becomes a runnable program after S1c, and Chapter 0 stays `draft` until then | showing only the mapping |
+| Where the comparison with other crates lives | a short table in §0.2 (who writes the SQL, when a mapping mistake is caught), toasty in prose; the appendix's phrasebook maps API names | the full table in the appendix |
+| Chapter 1's fetch helpers | the simple form (`query`, then map); shelf's prepare-first version is described and left to Chapter 5 | preparing first already in Chapter 1 |
+| Chapter 3's stage generator | new code that writes Chapter 1's impl (`from_row` with `try_get` by name), so the stage reads as Chapter 1 automated; the excerpts of the finished generator elide what Chapters 4 and 5 add | reproducing S0's generator, which was not kept |
+| Seeing an expansion | `pretty` first; `cargo expand` recommended too, since it runs on stable (§12 #7) | `pretty` only |
 
 ---
 
@@ -601,10 +609,9 @@ as in the main book, so that every excerpt quotes real code.
   the retry helper (main book §12 #6). Probe this first in S1b, before the trait is fixed.
 - **trybuild's `.stderr` files** change when rustc's wording changes. The toolchain is pinned,
   and they are regenerated deliberately.
-- **syn 3 is recent.** Most examples online show syn 2. Read syn's release notes and list the
-  differences that matter before writing Chapter 3.
-- **`cargo expand`** needs a nightly toolchain (or `RUSTC_BOOTSTRAP`). Verify how it installs
-  and runs on this machine before recommending it.
+- **syn 3 is recent.** Most examples online show syn 2. Resolved for Chapter 3: the
+  differences a derive meets are two fields of `Field` (§12 #3, #5).
+- **`cargo expand`**: resolved, it runs on stable (§12 #7).
 - **`Patch` design (c)** sends a typed value for every field, even unset ones. Verify that a
   `None` of the field's type serializes for every column type, domains included.
 - **Query builder ergonomics:** a `&str` for a `String` column, and `i32` literals for `i64`
@@ -624,17 +631,26 @@ code, and tagged with the chapter where it belongs.
 |---|---|---|
 | 1 | **Example names must be unique across the workspace's playgrounds:** both build into `target/debug/examples/`, so two `ch00_01` would overwrite each other. The shelf book's examples are `shelf_chNN_KK`. (A tooling finding; no chapter.) | — |
 | 2 | **A trait and a derive can share a name** because they live in different namespaces: `use shelf::FromRow` imports both, as serde's `Serialize` does. | 0, 3 |
-| 3 | **syn 3's derive types match syn 2's** (`DeriveInput { attrs, vis, ident, generics, data }`, `Data::{Struct, Enum, Union}`, `Fields::Named`), so S0's derive needed no syn-3-specific code. `IdentExt::unraw` turns `r#type` into the column name `type`. | 3 |
+| 3 | **syn 3's derive types match syn 2's** (`DeriveInput { attrs, vis, ident, generics, data }`, `Data::{Struct, Enum, Union}`, `Fields::Named`), so S0's derive needed no syn-3-specific code. **Except `Field`** (checked in the sources while writing Chapter 3): syn 2's `mutability: FieldMutability` became `modifiers: FieldModifiers`, and a new `default: Option<(Token![=], Expr)>` holds a default field value. Reading `attrs`, `ident` and `ty` is unchanged; building or destructuring a `Field` is not. `IdentExt::unraw` turns `r#type` into the column name `type`. | 3 |
 | 4 | **`Row::try_get("name")` searches the columns twice in the worst case** (0.7.18, `row.rs`, `RowIndex for str`): first by exact name, then again ignoring ASCII case (a FIXME notes that this is not Postgres's own rule). So a missing column costs two scans, and `SKU` finds `sku`. Each `try_get`, whether by name or by index, also calls `T::accepts(column type)` on every row before it decodes. | 1, 5 |
-| 5 | **syn 3.0.0's breaking changes do not touch what a derive uses**: `DeriveInput`, `Data`, `Fields`, `Attribute`, `parse_nested_meta` and `split_for_impl` are as in syn 2. The changes are in types (`Type::BareFn` → `Type::FnPtr`, attributes on every `Type`), expressions, patterns (`Arm::guard` → `Pat::Guard`), items (`Safety`), literals (`LitInt` lost `From<proc_macro2::Literal>`; `Lifetime`'s `Parse` refuses keywords) and `Punctuated::pop` (now `Option<T>`). Source: the 3.0.0 release notes on GitHub. | 3 |
+| 5 | **syn 3.0.0's breaking changes barely touch what a derive uses**: `DeriveInput`, `Data`, `Fields`, `Attribute`, `parse_nested_meta` and `split_for_impl` are as in syn 2, and `Field` changed as #3 says (`FieldModifiers` is in the notes' *Modifiers* section). The changes are in types (`Type::BareFn` → `Type::FnPtr`, attributes on every `Type`), expressions, patterns (`Arm::guard` → `Pat::Guard`), items (`Safety`), literals (`LitInt` lost `From<proc_macro2::Literal>`; `Lifetime`'s `Parse` refuses keywords) and `Punctuated::pop` (now `Option<T>`). Source: the 3.0.0 release notes on GitHub. | 3 |
 | 6 | **`Column` exposes `table_oid()` and `column_id()`** (`Option`s; `None` for a computed column), so `verify` can look up `pg_attribute.attnotnull` for the columns that come from a table. | 13 |
-| 7 | **`cargo expand` is not installed here**; it is a separate `cargo install cargo-expand` and needs a nightly toolchain to run (one is installed). The book's primary way to see an expansion is therefore `pretty()`, which works on stable. | 3 |
-| 8 | **Mapping by name costs about 3× mapping by index; the per-row `accepts` check costs nothing measurable.** 100,000 rows of 12 columns (5 `bigint`, 4 `text`, an `int`, a `bool`, a `float8`; two nullable), columns in reverse order of the struct, decoded from an in-memory `Vec<Row>`: by name 33.5–40.4 ms, by index 10.8–11.7 ms, by index with raw bytes and one `accepts` per statement 10.7–11.8 ms (three rounds each; release build, rustc 1.99.1, Apple Silicon, PG 18.6 on localhost). So shelf resolves names once per statement and then reads through the public `Row::try_get(usize)`; skipping the per-row check would need a raw-bytes `FromSql` wrapper and buys nothing. The check once per statement is for the *error* (before the first row, naming field and column), not for speed. | 1, 5 |
+| 7 | **`cargo expand` runs on stable Rust** (corrected 2026-11-09; this row first said it needs nightly). It wraps `cargo rustc --profile=check -- -Zunpretty=expanded` (its README), and sets `RUSTC_BOOTSTRAP=1` for that compiler (its `src/main.rs`). Verified with the raw command on rustc 1.99.1: without the variable, "the option `Z` is only accepted on the nightly compiler"; with it, the expansion. It is a separate `cargo install cargo-expand`, not installed here. The book's primary way is still `pretty()`, which needs nothing and can be asserted on. | 3 |
+| 8 | **Mapping by name costs about 3× mapping by index; the per-row `accepts` check costs nothing measurable.** 100,000 rows of 12 columns (4 `bigint`, 4 `text`, 2 `int`, a `bool`, a `float8`; two nullable; corrected 2026-11-09 from the benchmark's SQL), columns in reverse order of the struct, decoded from an in-memory `Vec<Row>`: by name 33.5–40.4 ms, by index 10.8–11.7 ms, by index with raw bytes and one `accepts` per statement 10.7–11.8 ms (three rounds each; release build, rustc 1.99.1, Apple Silicon, PG 18.6 on localhost). So shelf resolves names once per statement and then reads through the public `Row::try_get(usize)`; skipping the per-row check would need a raw-bytes `FromSql` wrapper and buys nothing. The check once per statement is for the *error* (before the first row, naming field and column), not for speed. | 1, 5 |
 | 9 | **A derive must declare its helper attribute**: without `attributes(shelf)` in `#[proc_macro_derive(FromRow, attributes(shelf))]`, the compiler rejects `#[shelf(…)]` itself ("cannot find attribute `shelf` in this scope … `shelf` is in scope, but it is a crate, not an attribute"), before the derive runs. Found when S1a's hygiene test first used `#[shelf(skip)]`. | 4 |
 | 10 | **Never write an error message from memory, even Rust's own**: a test expected `TryFromIntError`'s message to be "out of range integral type conversion attempted"; on rustc 1.99.1 a negative `i64` into `u64` says "number too small to fit in target type". The tests now assert on captured text. | 4 |
 | 11 | **`#[diagnostic::on_unimplemented]` works through a blanket impl.** shelf's generated code bounds field types by `shelf::FromColumn`, a trait with that attribute and one impl, `impl<T: FromSqlOwned> FromColumn for T`. For a field of type `std::time::Instant`, rustc 1.99.1 then leads with shelf's words (``error[E0277]: `Instant` cannot be read from a PostgreSQL column``, labelled "tokio-postgres has no `FromSql` for this type") instead of an unsatisfied bound on `shelf::__private::tokio_postgres::types::FromSqlOwned`; its own notes follow. The error appears twice, once per generated use of the type (`column::<T>` and `get::<T>`). (`tests/ui/not_readable.stderr`.) | 4 |
 | 12 | **Errors land where the user's tokens came from.** quote! keeps the spans of interpolated input, so a type error in generated code points at the field's type in the user's struct, and an error built with `Error::new_spanned(&lit, …)` points at the literal. The tokens the macro writes itself (`::shelf::…`) carry the call site's span. (All seven `.stderr` files.) | 3, 4 |
 | 13 | **shelf's mapping, measured** (`cargo run -p shelf --release --example bench_mapping`; median of 5; 100,000 rows × 12 columns as in #8; release build, rustc 1.99.1, Apple Silicon, PG 18.6 on localhost; two runs): by name by hand 38.2–38.5 ms (3.0×), by index by hand 12.4–12.6 ms (1.0×), **shelf resolving once (`from_rows`) 13.0–13.1 ms (1.0×)**, shelf resolving every row (`from_row`) 38.2–38.4 ms (3.0×). The derive costs about 4% over hand-written index code; resolving per row costs what lookups by name cost, which is why `fetch_*` and `from_rows` resolve once. | 5 |
+| 14 | **The orphan rule forbids `impl TryFrom<&Row> for (A, B)`** outside tokio-postgres (E0117, "tuples are always foreign", captured on rustc 1.99.1), so tuples need a mapping trait of shelf's own. The sketch of Chapter 1 had said the orphan rule was not a reason. | 1 |
+| 15 | **By name in a debug build costs 1.5–1.7× by position** (100,000 rows × 12 columns, best of 3, three runs: by name 197.8–203.3 ms, by position 120.4–129.2 ms; the build `book.py check` uses), and **the order of the `SELECT` list does not matter**: a lookup that matches at position *p* compares *p* + 1 names, so twelve fields compare 78 names per row in any order (measured: 202.7–206.9 ms reversed, 205.2–206.6 ms in struct order). The cost grows with the square of the column count. | 1, 5 |
+| 16 | **A `literal` metavariable cannot be pasted as a tuple index** (`$t.$i`: "unexpected token: `literal` metavariable"); a `tt` can. And `${index()}` (metavariable expressions) is still unstable in rustc 1.99.1 (E0658, issue #83527). | 2 |
+| 17 | **rustfmt leaves the inside of `model! { … }` alone**, but formats `model!( … )` when its contents parse. | 2 |
+| 18 | **What a derive receives** (captured with a probe derive that stores its input as a string): doc comments, other attributes and its helper attributes, but not the `#[derive(…)]` line, and after `cfg` evaluation (a `#[cfg(any())]` field is gone). Its output is added after the item. | 3 |
+| 19 | **`proc_macro` outside a proc macro**: `TokenStream::new()` works, `"…".parse::<TokenStream>()` panics with "procedural macro API is used outside of a procedural macro"; a `pub fn` in a proc-macro crate is refused ("`proc-macro` crate types currently cannot export any items other than functions tagged with …"). A panicking derive is reported as "proc-macro derive panicked" at the derive's name, with the message as a `help:`. | 3 |
+| 20 | **quote! pastes a `usize` with its suffix** (`columns . 1usize`), which syn refuses as a tuple index ("expected unsuffixed integer"); `syn::Index::from(n)` pastes `1`. Hence `Index` in from_row.rs. | 3 |
+| 21 | **sqlx 0.9, from its sources** (sqlx-core, sqlx-macros-core, sqlx-postgres 0.9.0): `#[derive(FromRow)]` is generic over `R: Row` with a `Decode` and a `Type` bound per field and reads each field with `__row.try_get("name")` per row; `PgRow` resolves a name through a `HashMap<UStr, usize>` the statement carries; it strips `r#` with `trim_start_matches`; tuples get `FromRow` for 1–16 elements, one macro invocation per size. SeaORM 2.0.4 depends on sqlx 0.9.0. | 1–3 |
+| 22 | **`book.py` does not see fenced blocks inside a blockquote** (`FENCE_OPEN` wants the fence at the start of a line), so a runnable program inside a callout would never be compiled or run. Keep runnable blocks outside callouts. (A tooling finding; no chapter.) | — |
 
 ---
 
@@ -645,7 +661,10 @@ was learnt). Each step is ticked when it is done and its gates are green, and a 
 says how far it got. The work is on the branch `shelf` and may not be committed yet
 (`git status`); commit only when the user asks.
 
-**Done before:** S0 (the scaffold), S1a (the mapping) and the sketches, all on 2026-11-07.
+**Done before:** S0 (the scaffold), S1a (the mapping) and the sketches, all on 2026-11-07;
+Chapters 0–3, written on 2026-11-09 ahead of this phase (§10). S1b changes `fetch.rs` (onto
+`Executor`), which Chapters 0 and 1 use but do not quote; rerun `book.py --book orm check` after
+it, and keep Chapter 1 §1.5's description of `fetch_all` true.
 Each chapter's sketch lists the open questions to settle when it is written. S1a's steps were:
 probes (§12 #4–#8), the test harness (`orm/shelf/tests/common/mod.rs`), `FromRow` complete, one
 check per statement, expansion/UI/integration tests, and the benchmark (§12 #13).

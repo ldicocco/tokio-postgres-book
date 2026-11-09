@@ -9,9 +9,9 @@ and a schema check follow.**
 
 > **Status: phase S1a done, on the branch `shelf`.** The plan is in [PLAN.md](PLAN.md).
 > `#[derive(FromRow)]` is complete and tested (attributes, errors, generics, one check per
-> statement); the model layer comes next. Every chapter is **sketched**: a plan of the chapter
-> in its place, with draft prose where the content is settled ([SKETCHES.md](SKETCHES.md)).
-> [The book PDF](book/shelf-book.pdf) shows them all.
+> statement); the model layer comes next. **Chapters 0–3 are written**; every other chapter is
+> **sketched**: a plan of the chapter in its place, with draft prose where the content is
+> settled ([SKETCHES.md](SKETCHES.md)). [The book PDF](book/shelf-book.pdf) shows them all.
 
 ## Who it is for
 
@@ -48,10 +48,10 @@ python3 tools/book.py --book orm list        # chapter status
 <!-- book:contents:begin -->
 | Chapter | You will learn | Status |
 |---|---|---|
-| [Chapter 0 — Introduction and setup](book/00-introduction.md) | What an ORM does and what shelf will be, the three crates and why, the finished API in ten lines, and the setup | sketch |
-| [Chapter 1 — Mapping rows by hand](book/01-mapping-by-hand.md) | The FromRow trait, reading by name or by index, NULL and nested structs, and the boilerplate a macro should write | sketch |
-| [Chapter 2 — Declarative macros](book/02-declarative-macros.md) | A macro_rules! that writes FromRow from a struct definition, tuple impls, $crate, and where declarative macros stop | sketch |
-| [Chapter 3 — The first derive macro](book/03-first-derive.md) | Proc-macro crates, TokenStream, syn and quote, the three-crate split, hygiene, and printing the expansion | sketch |
+| [Chapter 0 — Introduction and setup](book/00-introduction.md) | What an ORM does and what shelf will be, the three crates and why, the finished API in ten lines, and the setup | draft |
+| [Chapter 1 — Mapping rows by hand](book/01-mapping-by-hand.md) | The FromRow trait, reading by name or by index, NULL and nested structs, and the boilerplate a macro should write | current |
+| [Chapter 2 — Declarative macros](book/02-declarative-macros.md) | A macro_rules! that writes FromRow from a struct definition, tuple impls, $crate, and where declarative macros stop | current |
+| [Chapter 3 — The first derive macro](book/03-first-derive.md) | Proc-macro crates, TokenStream, syn and quote, the three-crate split, hygiene, and printing the expansion | current |
 | [Chapter 4 — Attributes, errors and generics](book/04-attributes.md) | #[shelf(…)] with parse_nested_meta, rename, skip, flatten, json and try_from, errors with spans, UI tests, generics | sketch |
 | [Chapter 5 — Checking a statement once, not every row](book/05-column-indices.md) | Resolving columns and checking their types once per statement, measured against lookups by name | sketch |
 | [Chapter 6 — Tables: the model derive](book/06-tables.md) | #[derive(Table)], primary keys, column metadata and SQL written at compile time, find and all | sketch |

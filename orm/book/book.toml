@@ -28,28 +28,28 @@ id = "introduction"
 path = "00-introduction.md"
 title = "Chapter 0 — Introduction and setup"
 summary = "What an ORM does and what shelf will be, the three crates and why, the finished API in ten lines, and the setup"
-status = "sketch"
+status = "draft"
 
 [[chapter]]
 id = "mapping-by-hand"
 path = "01-mapping-by-hand.md"
 title = "Chapter 1 — Mapping rows by hand"
 summary = "The FromRow trait, reading by name or by index, NULL and nested structs, and the boilerplate a macro should write"
-status = "sketch"
+status = "current"
 
 [[chapter]]
 id = "declarative-macros"
 path = "02-declarative-macros.md"
 title = "Chapter 2 — Declarative macros"
 summary = "A macro_rules! that writes FromRow from a struct definition, tuple impls, $crate, and where declarative macros stop"
-status = "sketch"
+status = "current"
 
 [[chapter]]
 id = "first-derive"
 path = "03-first-derive.md"
 title = "Chapter 3 — The first derive macro"
 summary = "Proc-macro crates, TokenStream, syn and quote, the three-crate split, hygiene, and printing the expansion"
-status = "sketch"
+status = "current"
 
 [[chapter]]
 id = "attributes"

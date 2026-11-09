@@ -66,8 +66,9 @@ also uses `sketch`, a chapter's plan in its place; orm/SKETCHES.md).
   (crates built on tokio-postgres) was researched from crates.io, docs.rs and the crates' source.
 - **The child project, shelf (`orm/`), finished phases S0 (scaffold) and S1a (the mapping)** on
   2026-11-07, on the branch `shelf`: `#[derive(FromRow)]` complete, `book.py --book`, and a
-  sketch of every chapter, in `orm/book/shelf-book.pdf`. orm/PLAN.md §9 lists its phases, and
-  §13 is the checklist for the next one.
+  sketch of every chapter, in `orm/book/shelf-book.pdf`. Its Chapters 0–3 were written on
+  2026-11-09, ahead of S1b. orm/PLAN.md §9 lists its phases, and §13 is the checklist for the
+  next one.
 
 ## Commands
 

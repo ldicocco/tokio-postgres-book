@@ -22,6 +22,9 @@ writing output from memory. This file lists only what differs or is added.
 - **Every chapter is sketched** (2026-11-07): `orm/book/NN-*.md` holds each chapter's sketch
   (status `sketch`), in the format of [SKETCHES.md](SKETCHES.md), and the book PDF
   (`orm/book/shelf-book.pdf`) contains them.
+- **Chapters 0–3 are written** (2026-11-09), ahead of S1b at the user's request: 1–3 are
+  `current`, and 0 is a `draft` until its §0.3 (the API in ten lines) can run after S1c
+  (PLAN.md §10). The other chapters are still sketches.
 - **Next: phase S1b, the model.** PLAN.md §13 is its checklist; a new session starts there.
 
 ## Commands
@@ -116,10 +119,11 @@ The root list applies, plus:
   and gives each test a schema `t_<uuidv7>` (on the connection's `search_path`), dropped
   afterwards.
 
-## Verified facts (S0, S1a)
+## Verified facts (S0, S1a, Chapters 0–3)
 
-- syn 3.0.9's derive types have the same shape as syn 2's (`DeriveInput`, `Data`, `Fields`,
-  `Field`). `syn::ext::IdentExt::unraw` strips the `r#` from a raw identifier.
+- syn 3.0.9's derive types have the same shape as syn 2's (`DeriveInput`, `Data`, `Fields`),
+  except `Field`: `mutability` became `modifiers: FieldModifiers`, and `default` is new.
+  `syn::ext::IdentExt::unraw` strips the `r#` from a raw identifier.
 - prettyplease 0.3.0 (on syn 3) formats a derive's output as rustfmt would. Its exact output
   for `FromRow` is pinned by `from_row::tests::each_field_reads_the_column_of_its_name`.
 - A trait and a derive macro can share a name (`shelf::FromRow`), because traits and macros
@@ -130,9 +134,14 @@ The root list applies, plus:
   again ignoring ASCII case; every `try_get`, by name or index, checks `accepts` per row. shelf
   matches names exactly (PostgreSQL folds unquoted names itself) and resolves them once.
 - `Column::table_oid()` and `column_id()` exist; tokio-postgres reports 0 as `None`.
-- syn 3.0.0 changed nothing a derive uses (`DeriveInput`, `Fields`, `Attribute`,
-  `parse_nested_meta`); its breaking changes are in types, expressions, patterns and literals.
+- syn 3.0.0 changed almost nothing a derive uses (`DeriveInput`, `Fields`, `Attribute`,
+  `parse_nested_meta` are as before; `Field` as above); its breaking changes are in types,
+  expressions, patterns and literals.
 - A derive must declare its helper attribute (`attributes(shelf)`), or the compiler rejects
   `#[shelf(…)]` before the derive runs.
 - `#[diagnostic::on_unimplemented]` works through a blanket impl (`FromColumn`).
-- `cargo expand` is not installed on this machine (a nightly toolchain is).
+- `cargo expand` is not installed on this machine, but it runs on stable: it sets
+  `RUSTC_BOOTSTRAP=1` for `-Zunpretty=expanded` (PLAN.md §12 #7). The raw command works here
+  the same way: `RUSTC_BOOTSTRAP=1 cargo rustc -p shelf-playground --example NAME
+  --profile=check -- -Zunpretty=expanded`.
+- `book.py` ignores fenced blocks inside blockquotes: never put a runnable block in a callout.

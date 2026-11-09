@@ -17,7 +17,8 @@ way.
 Every chapter that is not written yet has its sketch in `orm/book/`, under the chapter's file
 name, as a placeholder chapter with the status `sketch` in `orm/book/book.toml`. The book PDF
 contains the sketches (the registry's `pdf_statuses`), so a reader sees the whole book's shape
-before it is written. All sixteen were written on 7 November 2026, after phase S1a.
+before it is written. All sixteen were written on 7 November 2026, after phase S1a; Chapters 0–3
+replaced theirs on 9 November 2026.
 
 When a chapter is written, it replaces its sketch: the same file, the card gone, the open
 questions settled (in PLAN.md §10 or §12), the status `draft` and then `current`. A sketch
