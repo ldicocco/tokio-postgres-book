@@ -21,6 +21,7 @@
 
 mod error;
 mod fetch;
+mod json;
 mod row;
 mod tuples;
 
@@ -40,7 +41,7 @@ pub use row::{FromColumn, FromRow, from_rows};
 /// | `rename = "col"` | Read the column `col` |
 /// | `skip` | Do not read; use `Default::default()` |
 /// | `flatten` | A nested `FromRow` struct, read from the same row |
-/// | `json` | Read a `json` or `jsonb` column through serde (`Json<T>`) |
+/// | `json` | Read a `json` or `jsonb` column through serde; an SQL `NULL` is read as JSON `null`, so an `Option<T>` field gets `None` |
 /// | `try_from = S` | Read an `S`, then convert it with `TryFrom` |
 ///
 /// Fields hold owned values (`String`, not `&str`); a struct with lifetime parameters is
@@ -50,7 +51,7 @@ pub use shelf_macros::FromRow;
 /// What generated code refers to. Not part of the API: it may change in any release.
 #[doc(hidden)]
 pub mod __private {
+    pub use crate::json::Json;
     pub use crate::row::{column, column_at, get, get_try_from};
     pub use tokio_postgres;
-    pub use tokio_postgres::types::Json;
 }

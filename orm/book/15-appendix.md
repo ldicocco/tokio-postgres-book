@@ -2,7 +2,7 @@
 
 > **Building an ORM on tokio-postgres** · Previous: [Chapter 14 — Capstone: stockroom on shelf](14-capstone.md)
 
-> **Sketch, 7 November 2026.** A plan of this appendix, not its text; it will be replaced by
+> **Sketch, 9 November 2026.** A plan of this appendix, not its text; it will be replaced by
 > the appendix. It collects reference material from every chapter: the `#[shelf(…)]`
 > attributes (Chapters 4, 6, 8–11), what each derive generates (from the expansion tests in
 > `orm/shelf-codegen/tests/expand/`), a phrasebook from shelf to diesel, SeaORM and sqlx
@@ -34,7 +34,7 @@ On a field, read by `FromRow`:
 | `rename = "col"` | Read the column `col`; overrides `rename_all` | 4 |
 | `skip` | Do not read; use `Default::default()` | 4 |
 | `flatten` | A nested `FromRow` struct, read from the same row | 4 |
-| `json` | Read a `json` or `jsonb` column through `Json<T>` (serde) | 4 |
+| `json` | Read a `json` or `jsonb` column through serde; an SQL `NULL` reads as JSON `null` | 4 |
 | `try_from = Type` | Read a `Type`, then convert with `TryFrom`; the type may be quoted | 4 |
 
 Rules, as the derive enforces them: keys are refused if unknown or repeated; `skip` goes with

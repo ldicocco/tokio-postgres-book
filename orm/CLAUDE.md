@@ -152,7 +152,8 @@ The root list applies, plus:
 - A bound on a concrete type in a derive's `where` clause is reported at the derive's name, as
   the supertrait, without `FromColumn`'s message (PLAN.md §12 #24): keep bounds for generic
   types only.
-- `#[shelf(json)]` on `Option<T>` fails on an SQL `NULL` (PLAN.md §12 #26).
+- `#[shelf(json)]` reads through shelf's own `__private::Json<T>`, which reads an SQL `NULL` as
+  JSON `null` (postgres-types' `Json<T>` refuses it whatever `T` is; PLAN.md §12 #26).
 - The sources of darling 0.24.1 and sqlx 0.9.0 (sqlx-core, sqlx-macros-core, sqlx-postgres)
   are in `~/.cargo/registry/src/`; quote their behaviour from there.
 - **Probing compiler errors**: a scratch workspace with a proc-macro crate and a user crate that

@@ -8,14 +8,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
 shelf-macros = { workspace = true }
 thiserror = { workspace = true }
 tokio-postgres = { workspace = true }
 
 [dev-dependencies]
 dotenvy = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
 tokio = { workspace = true }
 trybuild = { workspace = true }
 uuid = { workspace = true }

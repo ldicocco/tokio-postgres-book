@@ -151,6 +151,59 @@ async fn json_reads_a_jsonb_column_through_serde() {
     assert_eq!(rows[1].attributes.ml, None);
 }
 
+#[tokio::test]
+async fn json_reads_an_sql_null_as_json_null() {
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct Attributes {
+        colour: String,
+    }
+
+    #[derive(Debug, FromRow)]
+    struct Optional {
+        #[shelf(json)]
+        attributes: Option<Attributes>,
+    }
+
+    #[derive(Debug, FromRow)]
+    struct Required {
+        #[shelf(json)]
+        attributes: Attributes,
+    }
+
+    let db = TestDb::new().await;
+    let client = db.client().await;
+    let document = r#"SELECT '{"colour": "blue"}'::jsonb AS attributes"#;
+    let json_null = "SELECT 'null'::jsonb AS attributes";
+    let sql_null = "SELECT NULL::jsonb AS attributes";
+
+    // An Option reads a document as Some, and either kind of null as None.
+    let blue = Some(Attributes {
+        colour: "blue".into(),
+    });
+    for (sql, expected) in [(document, blue), (json_null, None), (sql_null, None)] {
+        let row: Optional = fetch_one(&client, sql, &[]).await.unwrap();
+        assert_eq!(row.attributes, expected, "{sql}");
+    }
+
+    // A type that refuses JSON null refuses an SQL NULL too, as a NULL error.
+    let row: Required = fetch_one(&client, document, &[]).await.unwrap();
+    assert_eq!(row.attributes.colour, "blue");
+    let error = fetch_one::<Required>(&client, sql_null, &[])
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        &error,
+        Error::Mapping {
+            problem: Mapping::Null { .. },
+            ..
+        }
+    ));
+    assert_eq!(
+        error.to_string(),
+        "Required.attributes: column \"attributes\" is NULL; read it into an Option"
+    );
+}
+
 /// Cents that are never negative: the conversion refuses what the column allows.
 #[derive(Debug, PartialEq)]
 struct Cents(u64);

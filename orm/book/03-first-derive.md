@@ -401,16 +401,16 @@ any name the user's module defines:
   the user's module can shadow.
 - **tokio-postgres is reached through shelf.** The generated code needs `Row` and `Column`, and
   the user's crate may not depend on tokio-postgres, or may depend on another version. So shelf
-  re-exports what generated code names in a hidden module:
+  gathers what generated code names in a hidden module, tokio-postgres included:
 
 ~~~rust
 // orm/shelf/src/lib.rs (excerpt)
 /// What generated code refers to. Not part of the API: it may change in any release.
 #[doc(hidden)]
 pub mod __private {
+    pub use crate::json::Json;
     pub use crate::row::{column, column_at, get, get_try_from};
     pub use tokio_postgres;
-    pub use tokio_postgres::types::Json;
 }
 ~~~
 
@@ -420,7 +420,7 @@ pub mod __private {
 against, whatever the user's crate has. The double underscore and `#[doc(hidden)]` are the usual
 signal that a module is for macros only: it does not appear in the documentation, and it may
 change in any release. Its helpers, `column` and `get`, keep the generated code short; Chapter 5
-explains them.
+explains them. `Json` is shelf's wrapper for `#[shelf(json)]` fields (Chapter 4).
 
 **Raw identifiers.** A field may be named after a keyword, with Rust's raw-identifier prefix:
 `r#type`. Its identifier's text includes the prefix, so the stage generator, which uses

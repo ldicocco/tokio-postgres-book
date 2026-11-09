@@ -595,22 +595,50 @@ to alias the columns in SQL.
 
 ### `json`
 
-`json` reads the column through `Json<T>`, postgres-types' wrapper
-([main book §3.7](../../book/03-rows-and-types.md#37-json)), whose `FromSql` accepts `json` and
-`jsonb` and deserializes with serde, so `T` must implement `Deserialize`. The generated code
-unwraps it with `.0`. Without the attribute, the field would have to be a `Json<T>`.
+`json` reads the column through `Json<T>`, whose `FromSql` accepts `json` and `jsonb` and
+deserializes with serde, so `T` must implement `Deserialize`; the generated code unwraps it
+with `.0`. postgres-types has a wrapper of that name
+([main book §3.7](../../book/03-rows-and-types.md#37-json)), and shelf's is a thin layer over it,
+for one reason: NULL.
 
-> **Pitfall:** `#[shelf(json)]` on an `Option<T>` field reads `Json<Option<T>>`, and that is
-> not the same as `Option<Json<T>>`. A JSON `null` in the column becomes `None`, but an SQL
-> `NULL` fails the row with a `Null` error: in postgres-types 0.2.14 only `Option<T>` decodes
-> NULL (its `from_sql_null` returns `None`), and here the `Option` is inside the wrapper, whose
-> `from_sql_null` is the default `WasNull` error. This program reads all three cases:
+postgres-types' `Json<T>` refuses an SQL `NULL` whatever `T` is. In postgres-types 0.2.14 it keeps
+`FromSql`'s default `from_sql_null`, which returns a `WasNull` error; only `Option<T>` overrides
+it. So `#[shelf(json)]` on an `Option<T>` field, read through `Json<Option<T>>`, would fail on a
+NULL although the field can hold one: the `Option` is inside the wrapper. Writing this chapter
+found that, and shelf now reads an SQL `NULL` as JSON `null`, and lets `T` decide:
+
+~~~rust
+// orm/shelf/src/json.rs (excerpt)
+#[doc(hidden)]
+pub struct Json<T>(pub T);
+
+impl<'a, T: Deserialize<'a>> FromSql<'a> for Json<T> {
+    fn from_sql(ty: &Type, raw: &'a [u8]) -> Result<Self, Box<dyn Error + Sync + Send>> {
+        tokio_postgres::types::Json::<T>::from_sql(ty, raw).map(|json| Json(json.0))
+    }
+
+    fn from_sql_null(_: &Type) -> Result<Self, Box<dyn Error + Sync + Send>> {
+        // As for a JSON `null`; a type that refuses it makes this a NULL error.
+        T::deserialize(serde_json::Value::Null)
+            .map(Json)
+            .map_err(|_| Box::new(WasNull) as _)
+    }
+    // … `accepts` is postgres-types' own: `json` and `jsonb`
+}
+~~~
+
+[orm/shelf/src/json.rs](../shelf/src/json.rs)
+
+`serde_json::Value::Null` is itself a serde deserializer, so `T::deserialize` reads it as it would
+read `null` in a document. This program reads a document, a JSON `null` and an SQL `NULL`, into a
+field that can hold null and into one that cannot:
 
 ```rust
 use serde::Deserialize;
 use shelf::{Error, FromRow, Mapping};
+use tokio_postgres::types::Json;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, PartialEq, Deserialize)]
 struct Attributes {
     colour: String,
 }
@@ -621,52 +649,63 @@ struct Listing {
     attributes: Option<Attributes>,
 }
 
+#[derive(Debug, FromRow)]
+struct Required {
+    #[shelf(json)]
+    attributes: Attributes,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let client = shelf_playground::connect().await?;
+    let document = r#"SELECT '{"colour": "blue"}'::jsonb AS attributes"#;
+    let json_null = "SELECT 'null'::jsonb AS attributes";
+    let sql_null = "SELECT NULL::jsonb AS attributes";
 
-    let document: Listing = shelf::fetch_one(
-        &client,
-        r#"SELECT '{"colour": "blue"}'::jsonb AS attributes"#,
-        &[],
-    )
-    .await?;
-    assert_eq!(
-        document.attributes.map(|a| a.colour).as_deref(),
-        Some("blue")
-    );
+    // Into an Option: a document is Some, and either kind of null is None.
+    let blue = Some(Attributes {
+        colour: "blue".into(),
+    });
+    for (sql, expected) in [(document, blue), (json_null, None), (sql_null, None)] {
+        let listing: Listing = shelf::fetch_one(&client, sql, &[]).await?;
+        assert_eq!(listing.attributes, expected);
+    }
 
-    let json_null: Listing =
-        shelf::fetch_one(&client, "SELECT 'null'::jsonb AS attributes", &[]).await?;
-    assert!(json_null.attributes.is_none());
-
-    let sql_null = shelf::fetch_one::<Listing>(&client, "SELECT NULL::jsonb AS attributes", &[])
+    // Into a struct, which refuses JSON null: an SQL NULL is the error any NULL gives.
+    let required: Required = shelf::fetch_one(&client, document, &[]).await?;
+    assert_eq!(required.attributes.colour, "blue");
+    let error = shelf::fetch_one::<Required>(&client, sql_null, &[])
         .await
         .unwrap_err();
-    println!("{sql_null}");
+    println!("{error}");
     assert!(matches!(
-        sql_null,
+        error,
         Error::Mapping {
             problem: Mapping::Null { .. },
             ..
         }
     ));
 
-    // Without the attribute, Option<Json<T>> reads an SQL NULL as None.
-    let row = client.query_one("SELECT NULL::jsonb", &[]).await?;
-    let attributes: Option<tokio_postgres::types::Json<Attributes>> = row.try_get(0)?;
-    assert!(attributes.is_none());
+    // To tell the two nulls apart, leave the attribute off.
+    for (sql, expected) in [(json_null, Some(None)), (sql_null, None)] {
+        let row = client.query_one(sql, &[]).await?;
+        let value: Option<Json<Option<Attributes>>> = row.try_get(0)?;
+        assert_eq!(value.map(|json| json.0), expected);
+    }
     Ok(())
 }
 ```
 
 ```text
-Listing.attributes: column "attributes" is NULL; read it into an Option
+Required.attributes: column "attributes" is NULL; read it into an Option
 ```
 
-The message's advice does not fit this case: the field already is an `Option`. For a nullable
-`json` or `jsonb` column, declare the field as `Option<tokio_postgres::types::Json<T>>` without
-the attribute. sqlx has a separate key for the case, `#[sqlx(json(nullable))]`.
+An `Option<T>` field reads both kinds of null as `None`, as any `Option` field reads a NULL. A
+type that refuses `null` fails with the error a NULL gives any other field, and its advice fits.
+`serde_json::Value` accepts `null`, so it reads an SQL `NULL` as `Value::Null`. When the
+difference between the two nulls matters, leave the attribute off and read
+`Option<tokio_postgres::types::Json<Option<T>>>`, as the program's last lines do. sqlx keeps the
+two apart by default and has a second key for the nullable case, `#[sqlx(json(nullable))]`.
 
 ### `try_from`
 
@@ -1527,7 +1566,7 @@ wording, which an older Rust had used (PLAN.md §12 #10).
 | | by hand | shelf | sqlx |
 |---|---|---|---|
 | **Same** | The column's name, the nested struct, the JSON wrapper and the conversion, each stated once per field | The same, as attributes on the fields | The same, as attributes with the same names (`rename_all`, `rename`, `flatten`, `json`, `try_from`, `skip`) |
-| **Different** | Any logic at all, in the function body; an error is whatever the failing call returned, without the field or the column | Unknown keys, duplicates and contradictions are compile errors at the token, all in one build; a failed conversion names the struct, the field and the column; `try_from` takes a type or a quoted type | `try_from` takes only a quoted type; `json(nullable)` and a `default` key exist; it has no branch for an unknown field key, and `unwrap`s the result of parsing field attributes, so a mistake there stops the derive with a panic (§3.7; sqlx-macros-core 0.9.0's source) |
+| **Different** | Any logic at all, in the function body; an error is whatever the failing call returned, without the field or the column | Unknown keys, duplicates and contradictions are compile errors at the token, all in one build; a failed conversion names the struct, the field and the column; `try_from` takes a type or a quoted type; `json` reads an SQL `NULL` as JSON `null` | `try_from` takes only a quoted type; `json(nullable)` and a `default` key exist; it has no branch for an unknown field key, and `unwrap`s the result of parsing field attributes, so a mistake there stops the derive with a panic (§3.7; sqlx-macros-core 0.9.0's source) |
 
 ---
 
@@ -1595,8 +1634,8 @@ Adding an attribute to shelf touches these places, which is also a map of the ch
 - shelf's parser keeps each value with the span of its key (`Keyed`), refuses duplicates, flags
   with values and unknown keys (listing the known ones), and accepts a type quoted or not.
 - `rename_all`, `rename`, `skip`, `flatten`, `json` and `try_from` each change one element of
-  `Columns`, one call in `resolve` and one read in `from_row_at`. `#[shelf(json)]` on an
-  `Option<T>` decodes a JSON `null`, but not an SQL `NULL`.
+  `Columns`, one call in `resolve` and one read in `from_row_at`. `#[shelf(json)]` reads an SQL
+  `NULL` as JSON `null`, so an `Option<T>` field takes both as `None`.
 - Errors are collected with `syn::Error::combine` and reported together. `parse_nested_meta`
   stops at the first error in an attribute, so each attribute reports at most one parse error;
   combinations that cannot go together are refused at the key that does not fit.

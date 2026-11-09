@@ -116,6 +116,7 @@ what S1a built.
 | `shelf::Error` | `shelf/src/error.rs` | `Mapping { model, field, problem: Mapping }` with `Mapping::{MissingColumn, WrongType, Null, Decode}`, and `Db(tokio_postgres::Error)`. `#[non_exhaustive]`: S1b adds `NotFound` and `Stale`, S1c `Schema` |
 | `from_rows`, `fetch_all`, `fetch_one`, `fetch_opt` | `shelf/src/row.rs`, `fetch.rs` | `fetch_*` take tokio-postgres's `GenericClient`, prepare, resolve against the statement (so a wrong mapping fails before the query runs, with no extra round trip), then query. S1b moves them onto `Executor` |
 | `__private` | `shelf/src/lib.rs` | `column`, `column_at`, `get`, `get_try_from`, `tokio_postgres`, `Json`: what generated code names |
+| `__private::Json<T>` | `shelf/src/json.rs` | What `#[shelf(json)]` reads through: postgres-types' `Json<T>`, except that an SQL `NULL` is deserialized as JSON `null`, so `T` decides (added 2026-11-09, §12 #26) |
 
 ### 4.1 Crates
 
@@ -162,7 +163,7 @@ The field attributes:
 | `rename = "col"` **(built, S1a)** | Read the column `col` |
 | `skip` **(built, S1a)** | Do not read; use `Default::default()` |
 | `flatten` **(built, S1a)** | A nested `FromRow` read from the same row |
-| `json` **(built, S1a)** | Read through `Json<T>` |
+| `json` **(built, S1a)** | Read through `Json<T>`; an SQL `NULL` reads as JSON `null` |
 | `try_from = SqlType` **(built, S1a)** | Read `SqlType`, then `TryFrom` into the field. The type may also be quoted, as serde writes it |
 | `primary_key` | Part of the key; several fields make a composite key (a tuple) |
 | `generated` | The database fills it (`uuidv7()`, `now()`, identity): never written by shelf |
@@ -597,6 +598,7 @@ as in the main book, so that every excerpt quotes real code.
 | Writing Chapters 0–4 before S1b | done on 2026-11-09, at the user's request: they quote only what S1a built (`FromRow`, the tuples, `fetch_*`, `pretty`, and for Chapter 4 `attrs.rs`, `case.rs`, `generics.rs`, `FromColumn` and the UI tests), and `book.py excerpts` flags any drift when S1b changes those files. S1b's `table` key changes what Chapter 4 says about it (§4.2, "One namespace") and `unknown_attributes.stderr` | waiting for S1b–S2, as §9 orders |
 | An unreadable field type is reported twice (Chapter 4, §4.5–4.6) | kept: once per generated use (`column`, `get`), each in `FromColumn`'s words at the field. Bounding concrete field types in the `where` clause reports it once, but at the derive's name and in the driver's words (§12 #24) | one bound site per field |
 | Two fields that read the same column | allowed: reading one column twice is odd but legal (a `jsonb` as a typed value and as `serde_json::Value`). The check is Chapter 4's Exercise 2 | refusing it in the derive |
+| An SQL `NULL` in a `#[shelf(json)]` column | read as JSON `null`, through shelf's own `__private::Json<T>` (chosen 2026-11-09): `Option<T>` takes both nulls as `None`, as any `Option` field takes a NULL; a type that refuses `null` fails with `Mapping::Null`, whose advice then fits; reading `Option<Json<Option<T>>>` without the attribute still tells the two apart | a `json(nullable)` key, as sqlx has; a better error message only |
 | darling in Chapter 4 | shelf's parser rewritten in darling 0.24.1 in a scratch probe, shown as an illustration with the errors it produced (§12 #25); darling is not a dependency | none |
 | Chapter 0's §0.3 (the API in ten lines) | the target design as a `~~~rust` illustration, marked as such; it becomes a runnable program after S1c, and Chapter 0 stays `draft` until then | showing only the mapping |
 | Where the comparison with other crates lives | a short table in §0.2 (who writes the SQL, when a mapping mistake is caught), toasty in prose; the appendix's phrasebook maps API names | the full table in the appendix |
@@ -625,10 +627,6 @@ as in the main book, so that every excerpt quotes real code.
   `Column` exposes the table OID and column number.
 - **Size.** 15 chapters and an appendix. Write and verify one chapter at a time. Length follows
   the material (§7): do not cut verified content to meet the guide.
-- **`#[shelf(json)]` and SQL NULL** (§12 #26): on an `Option<T>` field, an SQL `NULL` fails with
-  `Mapping::Null`, whose advice ("read it into an Option") does not fit. Decide in S1b or S1c:
-  a `json(nullable)` key as sqlx has, or a message for this case. Chapter 4 documents the
-  current behaviour as a pitfall, and Chapter 1 quotes the message.
 
 ---
 
@@ -664,7 +662,7 @@ code, and tagged with the chapter where it belongs.
 | 23 | **Forgetting the `#[derive(FromRow)]` gives the same error as forgetting `attributes(shelf)`**: "cannot find attribute `shelf` in this scope", with the note "`shelf` is in scope, but it is a crate, not an attribute" (rustc 1.99.1, probes in the scratchpad, the user crate depending on shelf). When the probe's own proc-macro crate, a direct dependency, had another derive declaring `shelf`, rustc instead noted "`shelf` is an attribute that can be used by the derive macro `DarlingRow`, you might be missing a `derive` attribute"; with shelf, whose derive is re-exported, it does not. | 4 |
 | 24 | **A bound on a concrete field type in a derive's `where` clause** (`where std::time::Instant: ::shelf::FromColumn`, written by a probe derive) is reported once, but **at the derive's name**, not at the field, and **as the supertrait** ("the trait bound `Instant: …FromSqlOwned` is not satisfied"), without `FromColumn`'s `on_unimplemented` message. The same clause written by hand errors at the predicate, also as the supertrait. Hence `generics.rs` bounds only generic types, and an unreadable type is reported twice, at the field, in shelf's words (§10). | 4 |
 | 25 | **Errors per attribute: syn stops, darling goes on.** `parse_nested_meta` returns at the closure's first error (syn 3.0.9, `meta.rs`: `logic(…)?`), so shelf reports at most one parse error per `#[shelf(…)]`; `#[shelf(renamed = "x", skip = 1)]` reports only `renamed`. `meta.error` spans from the key to the last token read (syn keeps a start and an end span and puts them on `compile_error!`'s path and braces). darling 0.24.1 (on syn 3; shelf's parser rewritten in a probe) reports both errors of such an attribute, suggests ("Unknown field: `renamed`. Did you mean `rename`?", default feature `suggestions`), lists enum values ("Unknown value: `kebab-case`. Available values: …"), and words the rest its own way ("Duplicate field `rename`", "Unexpected type `bool`" for `skip = true`); its `SpannedValue` spans the value, not the key. | 4 |
-| 26 | **`#[shelf(json)]` on an `Option<T>` field reads `Json<Option<T>>`**: a JSON `null` gives `None`, but an SQL `NULL` fails with `Mapping::Null` ("… is NULL; read it into an Option", misleading here), because postgres-types 0.2.14's `Json<T>` keeps the default `from_sql_null` (`WasNull`) and only `Option<T>` overrides it. `Option<Json<T>>` without the attribute reads an SQL `NULL` as `None`. sqlx 0.9 has `json(nullable)` for this (§11). | 4 |
+| 26 | **`#[shelf(json)]` on an `Option<T>` field reads `Json<Option<T>>`**: a JSON `null` gives `None`, but an SQL `NULL` fails with `Mapping::Null` ("… is NULL; read it into an Option", misleading here), because postgres-types 0.2.14's `Json<T>` keeps the default `from_sql_null` (`WasNull`) and only `Option<T>` overrides it. `Option<Json<T>>` without the attribute reads an SQL `NULL` as `None`. sqlx 0.9 has `json(nullable)` for this. **Fixed** the same day (§10): `#[shelf(json)]` now reads through shelf's own `__private::Json<T>`, whose `from_sql_null` deserializes `T` from `serde_json::Value::Null`, mapping a refusal to `WasNull`; the generated code is unchanged. | 4 |
 | 27 | **sqlx 0.9's attribute parsing, from sqlx-macros-core 0.9.0's source**: field keys `rename`, `try_from` (a quoted type only), `default`, `flatten`, `skip`, `json` and `json(nullable)`; the field closure has no branch for an unknown key; `parse_child_attributes(…).unwrap()` and `panic!` for impossible combinations, so a mistake in field attributes panics the derive; `flatten` + `try_from` and `json` + `try_from` are allowed (shelf refuses the latter); `rename_all` has seven cases (with `lowercase`, `UPPERCASE`, `kebab-case`); every field's type is bounded in the `where` clause (each bound mentions `R`). | 4 |
 
 ---

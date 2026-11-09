@@ -1,8 +1,8 @@
 90b198f387da7fb9bc02cd190bf1c78017cb54226a02626684f78365d8a0d709  orm/book/00-introduction.md
 6058f9d659de5eec1ec80ea21d331972a1beed0d5a74130541c3dfbf1d98a03e  orm/book/01-mapping-by-hand.md
 f012b9d4acfe0ec7edccd8bed0439df5ee85508a4bc1333fb2ab526b3a226f78  orm/book/02-declarative-macros.md
-432db259f8caf27146c34c91aa910668b71b1a84c99d553384fab71409fc7cc3  orm/book/03-first-derive.md
-13c9181200bebaf7a0cb5c42d9ab8a3a1300356c218537b64cedff595003a3a9  orm/book/04-attributes.md
+9f53766a72480a9aa408639cd49094a1f932daadaa99016ca81d491a8d05f95d  orm/book/03-first-derive.md
+2137572f7080e2cd8b0d61baab8649011d89a4009799bbb45f863e1c4eccb9d8  orm/book/04-attributes.md
 4fbb15637e5664a4752d8fa38a7493d5b73bd57b48193c4566d21df7732d753c  orm/book/05-column-indices.md
 91fecf93b7b01b4c3366e9506836f390ef326323f649c29e65ea3a38dd9df923  orm/book/06-tables.md
 856a3640d3949781538738d4bd1e9b9efa4117188551da6ecd136941cfb69542  orm/book/07-executor.md
@@ -13,4 +13,4 @@ cd34d322d410fa047ed4eea1236c8bb928132c35de1cb832162d02c79f0f1ffb  orm/book/11-re
 fed34d6cdf0eb35bf2df597379fff6bcbe24ed792fc88bde5a4828aece2ab5be  orm/book/12-bulk-and-streams.md
 ffa222514725a59d87f238abcff2741231cac93a1a0d4b0dcca509315aa143c9  orm/book/13-trusting-the-mapping.md
 fa6edfbc317a9e94a9c87b5bd8ee784a71cd62e5b1b1e2c700ddd5a3173141c5  orm/book/14-capstone.md
-7140008c2917ce46f42eb7deb20a816823e4ab6f8eda32e0be7f36bb8fd3af1e  orm/book/15-appendix.md
+e46451d2147ac2492f66a6b26e978ed4b188d432b28e9cee85f9c4dcc2791b3f  orm/book/15-appendix.md
