@@ -13,7 +13,8 @@ writing output from memory. This file lists only what differs or is added.
 
 ## Status
 
-- Work happens on the branch **`shelf`**. It is merged into `main` in phase S4, not before.
+- Work happened on the branch **`shelf`** until phase S4 merged it into `main` (2026-11-10, a
+  merge commit). Later work starts from `main`.
 - **Phase S0 (scaffold) is done** (2026-11-07): the crates, `tools/book.py --book`, and a
   Chapter 0 stub (`draft`) with two runnable examples.
 - **Phase S1a (the mapping) is done** (2026-11-07): `#[derive(FromRow)]` complete, with
@@ -45,9 +46,11 @@ writing output from memory. This file lists only what differs or is added.
   chapter `current`, 141 runnable examples. PLAN.md §10 has its decisions, §12 #69–#73 its probes
   and measurements. Writing Chapter 12 found that `insert_many` broke on a composite column; it now
   puts its `unnest`s in the select list (§12 #71), with a test.
-- **Next: phase S4, polish and merge.** PLAN.md §13 is its checklist; a new session starts there,
-  after checking that no other session works in the repository (two did on 2026-11-09, and one
-  overwrote the other's file).
+- **Phase S4 (polish and merge) is done** (2026-11-10): a read-through (63 fixes, each checked
+  against the source), the coverage audit, the crate documentation, both PDFs rebuilt, and
+  `shelf` merged into `main`. PLAN.md §13 records it; no phase is planned after it. Before
+  working here, check that no other session works in the repository (two did on 2026-11-09, and
+  one overwrote the other's file).
 
 ## Commands
 

@@ -12,7 +12,7 @@ pages) fresh. The §5.3 coverage audit found `host_path`, the keepalive setters 
 writing the chapters taught is in §12.
 
 A **child project**, shelf (a small ORM on tokio-postgres, with a second book that follows its
-build), started on 2026-11-07 on the branch `shelf`. It has its own plan,
+build), started on 2026-11-07 on the branch `shelf` and merged into `main` on 2026-11-10. It has its own plan,
 [orm/PLAN.md](orm/PLAN.md); §13 says how the two relate.
 
 ---
@@ -848,7 +848,8 @@ named, as a runnable example where it can be one.
 second book that follows its construction. Its main subject is derive macros that map rows to
 structs; around them it builds a model layer, partial updates and optimistic locking, a typed
 query builder, relations, bulk writes, streams and a schema check. It lives in `orm/`, in the
-same workspace, and is developed on the branch `shelf` until its phase S4.
+same workspace, and was developed on the branch `shelf` until its phase S4 merged it into `main`
+(2026-11-10).
 
 - **[orm/PLAN.md](orm/PLAN.md) is its source of truth**: scope, target design, chapter outline,
   phases and decisions. [orm/CLAUDE.md](orm/CLAUDE.md) holds its working rules, which add to

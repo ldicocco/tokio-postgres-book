@@ -35,8 +35,9 @@ done on 2026-11-09**: Chapters 10–14 and the appendix written and `current` (4
 more, 141 in all; Chapter 14 shows the capstone through excerpts, its tests and a real session),
 their open questions settled in §10 and §12 #69–#73. Writing Chapter 12 found a bug in
 `insert_many` (a composite column, §12 #71): fixed, tested, and the bulk and capstone measurements
-re-run. Every chapter is now `current`. The next phase is S4: polish and merge (§9, and §13 step
-by step).
+re-run. Every chapter is now `current`. **Phase S4 (polish and merge) done on 2026-11-10**: a
+read-through with 63 fixes, the coverage audit, the crate documentation, both PDFs rebuilt, and
+`shelf` merged into `main` with a merge commit, every gate green on `main` (§13).
 
 ---
 
@@ -651,7 +652,7 @@ as in the main book, so that every excerpt quotes real code.
 | **S3a. Part I** (done 2026-11-09; Chapters 0–4 written ahead of S1b) | Chapters 0–5 | `book.py --book orm check` passes, including excerpts and links; the chapters are `current` |
 | **S3b. Part II** (done 2026-11-09) | Chapters 6–9 | The same |
 | **S3c. Part III** (done 2026-11-09) | Chapters 10–14 and the appendix | The same |
-| **S4. Polish and merge** | The book PDF, a read-through, a coverage audit against §5, and merging `shelf` into `main` | `book.py --book orm list` shows every chapter `current` and the PDF fresh |
+| **S4. Polish and merge** (done 2026-11-10) | The book PDF, a read-through, a coverage audit against §5, and merging `shelf` into `main` | `book.py --book orm list` shows every chapter `current` and the PDF fresh |
 
 ---
 
@@ -840,10 +841,9 @@ code, and tagged with the chapter where it belongs.
 
 ## 13. Next steps: phase S4, step by step
 
-**Resuming in a new session:** read this section first, then §9's S4 row, §5 (the coverage
-matrix) and the written book (`orm/book/`, all `current`). Each step is ticked when it is done and
-its gates are green, and a step in progress says how far it got. The work is on the branch `shelf`
-and may not be committed yet (`git status`); commit only when the user asks. **Check first that no
+**S4 is done (2026-11-10), and no phase is planned after it.** `shelf` is merged into `main`. A
+later change to the book or the crates follows orm/CLAUDE.md and the S3c method below; commit
+only when the user asks. **Check first that no
 other session is working in this repository** (§11): two sessions in one working tree overwrite
 each other's files.
 
@@ -894,7 +894,8 @@ the PDF fresh):
   too (270 pages), since its Chapter 0 changed (the Rust version).
 - [ ] **5. All gates**, both books; then ask the user about merging `shelf` into `main`, and after
   the merge run the gates on `main` and update the status lines (this file, orm/CLAUDE.md, the
-  root CLAUDE.md and PLAN.md). *In progress:* every gate green on `shelf` after steps 1–4 (fmt,
-  both clippy runs, 175 workspace tests, the tool's tests, 156 main-book and 141 shelf-book
-  examples run); `main` has no commit that `shelf` lacks, so the merge is a fast-forward. Waiting
-  for the user's go-ahead to commit and merge.
+  root CLAUDE.md and PLAN.md). *Done 2026-11-10:* every gate green on `shelf` after steps 1–4
+  (fmt, both clippy runs, 175 workspace tests, the tool's tests, 156 main-book and 141 shelf-book
+  examples run); at the user's choice, steps 1–4 committed on `shelf`, merged into `main` with a
+  merge commit (`main` had not moved, so a fast-forward was possible), the gates run again on
+  `main`, and these status lines updated.

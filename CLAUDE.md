@@ -20,7 +20,7 @@ software the book teaches from:
   then a model layer, a query builder and relations), with a second book that follows its build,
   and its capstone `orm/stockroom-shelf`, stockroom's API with part of its data layer on shelf.
   It has its own [orm/PLAN.md](orm/PLAN.md) and [orm/CLAUDE.md](orm/CLAUDE.md), which add to
-  this file. Work on it happens on the branch `shelf`.
+  this file. It was built on the branch `shelf`, merged into `main` on 2026-11-10.
 
 **Audience:** developers with average Rust, basic Tokio and basic SQL. The book ends with them
 building and operating a Postgres-backed axum service.
@@ -73,8 +73,9 @@ also uses `sketch`, a chapter's plan in its place; orm/SKETCHES.md).
   `orm/stockroom-shelf`, which reuses the `stockroom` crate and never changes it) were done the
   same day, and so were S3a (Part I: Chapter 5 written, Chapters 0–5 `current`), S3b (Part
   II: Chapters 6–9) and S3c (Part III: Chapters 10–14 and the appendix): every chapter of the
-  shelf book is `current`, 141 runnable examples. S4 (polish, and merging `shelf` into `main`) is
-  next. orm/PLAN.md §9 lists its phases, and §13 is the checklist for the next one.
+  shelf book is `current`, 141 runnable examples. S4 (polish, and the merge into `main`) was
+  done on 2026-11-10: a read-through with 63 fixes, both PDFs rebuilt, every gate green on
+  `main`. orm/PLAN.md §9 lists its phases, and §13 records S4.
 
 ## Commands
 
@@ -241,8 +242,9 @@ with `// …`.
 
 ## Code conventions (stockroom, apps, playground)
 
-- Edition 2024. Declare dependency versions **once**, in the root `[workspace.dependencies]`.
-  Members use `{ workspace = true }`.
+- Edition 2024, and Rust 1.89 or newer: the locked uuid 1.29 declares it (nothing pins the
+  toolchain; rustc 1.99.1 is what the books were checked with). Declare dependency versions
+  **once**, in the root `[workspace.dependencies]`. Members use `{ workspace = true }`.
 - Default rustfmt formatting (4 spaces), clippy clean with `-Dwarnings`.
 - **SQL is always parameterized** (`$1…$n`). Never `format!` a value into SQL. Identifiers that
   have to be dynamic go through a `quote_ident` helper, and the code says why.

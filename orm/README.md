@@ -7,8 +7,7 @@ The derive macros that map rows to structs come first. A model layer, partial up
 optimistic locking, a typed query builder, relations without N+1 queries, bulk writes, streams
 and a schema check follow.**
 
-> **Status: complete, on the branch `shelf`; phase S4 (polish, and the merge into `main`) is
-> under way.** The plan is in [PLAN.md](PLAN.md). shelf is built and tested:
+> **Status: complete (2026-11-10).** The plan is in [PLAN.md](PLAN.md). shelf is built and tested:
 > `#[derive(FromRow)]`, the model layer (`Table`, `Insert`, `Patch`, the executor), the typed
 > query builder, relations, bulk writes, streams and `verify`; and so is the capstone,
 > `stockroom-shelf`, which serves the main book's stockroom API with stores, products and orders
