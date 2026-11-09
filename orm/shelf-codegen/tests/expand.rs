@@ -15,6 +15,9 @@ use syn::{DeriveInput, Item};
 fn expand(derive: &str, input: &DeriveInput) -> Option<syn::Result<TokenStream>> {
     match derive {
         "FromRow" => Some(shelf_codegen::from_row::expand(input)),
+        "Table" => Some(shelf_codegen::table::expand(input)),
+        "Insert" => Some(shelf_codegen::insert::expand(input)),
+        "Patch" => Some(shelf_codegen::patch::expand(input)),
         _ => None,
     }
 }

@@ -1,0 +1,53 @@
+error: Table needs the table's name: #[shelf(table = "…")]
+ --> tests/ui/table.rs:5:8
+  |
+5 | struct NoTable {
+  |        ^^^^^^^
+
+error: Table needs a key: mark its column, or columns, #[shelf(primary_key)]
+  --> tests/ui/table.rs:12:8
+   |
+12 | struct NoKey {
+   |        ^^^^^
+
+error: a schema name cannot be empty
+  --> tests/ui/table.rs:22:38
+   |
+22 | #[shelf(table = "products", schema = "")]
+   |                                      ^^
+
+error: a Table model lists its own columns, and a flattened struct's are not known here: write them out as fields, or read this struct with FromRow and SQL
+  --> tests/ui/table.rs:26:13
+   |
+26 |     #[shelf(flatten)]
+   |             ^^^^^^^
+
+error: `generated` cannot apply to a field marked `skip`, which is not a column
+  --> tests/ui/table.rs:28:19
+   |
+28 |     #[shelf(skip, generated)]
+   |                   ^^^^^^^^^
+
+error: a Table model cannot be generic: its SQL names one table
+  --> tests/ui/table.rs:34:16
+   |
+34 | struct Generic<T> {
+   |                ^
+
+error: a key column cannot also be a version or an `updated_at`: an update would change the key it looks the row up by
+  --> tests/ui/table.rs:43:26
+   |
+43 |     #[shelf(primary_key, version)]
+   |                          ^^^^^^^
+
+error: a model has one `version` column
+  --> tests/ui/table.rs:45:13
+   |
+45 |     #[shelf(version)]
+   |             ^^^^^^^
+
+error: a model has one `version` column
+  --> tests/ui/table.rs:47:13
+   |
+47 |     #[shelf(version)]
+   |             ^^^^^^^

@@ -410,6 +410,7 @@ any name the user's module defines:
 pub mod __private {
     pub use crate::json::Json;
     pub use crate::row::{column, column_at, get, get_try_from};
+    // …
     pub use tokio_postgres;
 }
 ~~~
@@ -859,7 +860,7 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
 }
 
 /// The struct's named fields, or an error that says why the input cannot be mapped.
-fn named_fields(input: &DeriveInput) -> Result<&Punctuated<Field, Token![,]>> {
+pub(crate) fn named_fields(input: &DeriveInput) -> Result<&Punctuated<Field, Token![,]>> {
     match &input.data {
         Data::Struct(data) => match &data.fields {
             Fields::Named(fields) => Ok(&fields.named),

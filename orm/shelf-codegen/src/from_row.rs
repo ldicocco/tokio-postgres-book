@@ -7,7 +7,7 @@ use syn::ext::IdentExt;
 use syn::punctuated::Punctuated;
 use syn::{Data, DeriveInput, Error, Field, Fields, Index, Result, Token, parse_quote};
 
-use crate::attrs::{ContainerAttrs, Errors, FieldAttrs, Read};
+use crate::attrs::{ContainerAttrs, Derive, Errors, FieldAttrs, Read};
 use crate::generics::Bounds;
 
 /// The `impl shelf::FromRow` for `input`, or every error found in it.
@@ -22,10 +22,15 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
              instead of `&str`, and `Vec<u8>` instead of `&[u8]`",
         ));
     }
-    let container = ContainerAttrs::parse(&input.attrs, &mut errors);
+    let container = ContainerAttrs::parse(&input.attrs, Derive::FromRow, &mut errors);
     let fields: Vec<(&Field, FieldAttrs)> = fields
         .iter()
-        .map(|field| (field, FieldAttrs::parse(&field.attrs, &mut errors)))
+        .map(|field| {
+            (
+                field,
+                FieldAttrs::parse(&field.attrs, Derive::FromRow, &mut errors),
+            )
+        })
         .collect();
     errors.finish()?;
 
@@ -145,7 +150,7 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
 }
 
 /// The struct's named fields, or an error that says why the input cannot be mapped.
-fn named_fields(input: &DeriveInput) -> Result<&Punctuated<Field, Token![,]>> {
+pub(crate) fn named_fields(input: &DeriveInput) -> Result<&Punctuated<Field, Token![,]>> {
     match &input.data {
         Data::Struct(data) => match &data.fields {
             Fields::Named(fields) => Ok(&fields.named),

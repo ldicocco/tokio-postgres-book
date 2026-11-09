@@ -1,0 +1,78 @@
+error: Insert needs the model the row becomes: #[shelf(model = Product)]
+ --> tests/ui/insert.rs:6:8
+  |
+6 | struct NoModel {
+  |        ^^^^^^^
+
+error: `table` belongs on the model: an Insert struct writes to its model's table
+  --> tests/ui/insert.rs:19:26
+   |
+19 | #[shelf(model = Product, table = "products")]
+   |                          ^^^^^
+
+error: `primary_key` has no meaning on an Insert struct, which writes each field to its column; it belongs on the model
+  --> tests/ui/insert.rs:21:13
+   |
+21 |     #[shelf(primary_key)]
+   |             ^^^^^^^^^^^
+
+error: `conflict` cannot apply to a field marked `skip`, which is not written
+  --> tests/ui/insert.rs:23:19
+   |
+23 |     #[shelf(skip, conflict)]
+   |                   ^^^^^^^^
+
+error: an Insert struct cannot have type parameters: its SQL is a constant built from its model's (lifetimes are fine, for fields that borrow)
+  --> tests/ui/insert.rs:40:19
+   |
+40 | struct NewGeneric<T> {
+   |                   ^
+
+error: Insert needs named fields: each one is written to the column of that name
+  --> tests/ui/insert.rs:46:8
+   |
+46 | struct NewPair(i64, String);
+   |        ^^^^^^^
+
+error[E0277]: `NotATable` is not a shelf model
+  --> tests/ui/insert.rs:33:17
+   |
+33 | #[shelf(model = NotATable)]
+   |                 ^^^^^^^^^ not a `Table`
+   |
+help: the trait `Table` is not implemented for `NotATable`
+  --> tests/ui/insert.rs:28:1
+   |
+28 | struct NotATable {
+   | ^^^^^^^^^^^^^^^^
+   = note: derive it: `#[derive(FromRow, Table)]`, with `#[shelf(table = "…")]` on the struct and `#[shelf(primary_key)]` on its key
+help: the trait `Table` is implemented for `Product`
+  --> tests/ui/insert.rs:10:19
+   |
+10 | #[derive(FromRow, Table)]
+   |                   ^^^^^
+note: required by a bound in `shelf::Insert::Model`
+  --> src/write.rs
+   |
+   |     type Model: Table;
+   |                 ^^^^^ required by this bound in `Insert::Model`
+   = note: this error originates in the derive macro `Table` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `NotATable` is not a shelf model
+  --> tests/ui/insert.rs:33:17
+   |
+33 | #[shelf(model = NotATable)]
+   |                 ^^^^^^^^^ not a `Table`
+   |
+help: the trait `Table` is not implemented for `NotATable`
+  --> tests/ui/insert.rs:28:1
+   |
+28 | struct NotATable {
+   | ^^^^^^^^^^^^^^^^
+   = note: derive it: `#[derive(FromRow, Table)]`, with `#[shelf(table = "…")]` on the struct and `#[shelf(primary_key)]` on its key
+help: the trait `Table` is implemented for `Product`
+  --> tests/ui/insert.rs:10:19
+   |
+10 | #[derive(FromRow, Table)]
+   |                   ^^^^^
+   = note: this error originates in the derive macro `Table` (in Nightly builds, run with -Z macro-backtrace for more info)

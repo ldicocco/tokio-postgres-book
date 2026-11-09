@@ -18,3 +18,30 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }
+
+/// Implements `shelf::Insert`, and `shelf::Upsert` when fields are marked `conflict`.
+#[proc_macro_derive(Insert, attributes(shelf))]
+pub fn derive_insert(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    shelf_codegen::insert::expand(&input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// Implements `shelf::Patch`.
+#[proc_macro_derive(Patch, attributes(shelf))]
+pub fn derive_patch(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    shelf_codegen::patch::expand(&input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// Implements `shelf::Table`. Every shelf derive declares the same helper attribute.
+#[proc_macro_derive(Table, attributes(shelf))]
+pub fn derive_table(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    shelf_codegen::table::expand(&input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}

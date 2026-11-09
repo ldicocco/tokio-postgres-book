@@ -2,7 +2,7 @@
 use shelf::FromRow;
 
 #[derive(FromRow)]
-#[shelf(table = "products")]
+#[shelf(tabel = "products")]
 struct OnTheStruct {
     id: i64,
 }

@@ -2,13 +2,13 @@
 
 > **Building an ORM on tokio-postgres** · Previous: [Chapter 8 — Writing rows: insert, update, delete, upsert](08-writing.md) · Next: [Chapter 10 — A typed query builder](10-query-builder.md)
 
-> **Sketch, 7 November 2026.** A plan of this chapter, not its text; it will be replaced by
+> **Sketch, 9 November 2026.** A plan of this chapter, not its text; it will be replaced by
 > the chapter. Part II, fourth chapter. Builds on Chapter 8, and on main book
 > [Chapter 4](../../book/04-prepared-statements.md) (statements per shape),
 > [Chapter 8](../../book/08-transactions.md) (§8.8, optimistic concurrency) and
 > [Chapter 15](../../book/15-axum-api.md) (ETag and `If-Match`). shelf: `#[derive(Patch)]` in
-> `shelf-codegen/src/patch.rs`, the `version` and `updated_at` attributes, `Error::Stale`
-> (proposed, S1b step 5). Crates: tokio-postgres 0.7.18, serde. Findings: root PLAN.md §12 #1
+> `shelf-codegen/src/patch.rs`, `Patch` and `patch_sql` in `shelf/src/patch.rs`, the `version`
+> and `updated_at` attributes, `Error::Stale` (built, S1b). Findings: §12 #30, #31, #33. Crates: tokio-postgres 0.7.18, serde. Findings: root PLAN.md §12 #1
 > (domain-typed parameters). Plan: [orm/PLAN.md](../PLAN.md) §7, Chapter 9; §13, S1b steps 1
 > and 5.
 
@@ -59,19 +59,23 @@ CASE WHEN $f THEN $v ELSE col END`: one statement, NULLs included, at the price 
 parameters.
 
 Plan:
-- Each design run against the same table; prepared statements counted in
-  `pg_prepared_statements`, round trips through lagproxy (to measure).
-- The choice recorded in PLAN.md §10.
-- The catch for design (c): an unset field still sends a typed value; check that a `None` of
-  the field's type serializes for every column type, domains included (root PLAN.md §12 #1).
+- Each design run against the same table, through lagproxy (measured, PLAN.md §12 #33: (a)
+  caches a statement per shape, 7 for 3 fields; (b) cannot write NULL; (c) one statement, NULLs
+  included). shelf chose (c) (§10).
+- Design (c)'s catch was checked: an unset field sends a typed `None`, accepted for every
+  column type tried, and a domain's parameter is typed as its base type (§12 #30).
+- The statement is built once, at first use, in a `LazyLock<String>`: its `$n` numbers depend
+  on the model's key. A **Rust refresher** on `LazyLock` (stable since Rust 1.80; check), and
+  why a `const` could not do it here (Chapter 6).
 
 ## 9.3 Version columns
 
 Plan:
 - `#[shelf(version)]` on an `i32` field: `WHERE "id" = $1 AND "version" = $2`, and
   `"version" = "version" + 1` in the `SET` list.
-- Zero rows: either the row is gone (`NotFound`) or the version moved on (`Stale`). Telling
-  them apart in one round trip with a CTE that also reports whether the row exists (S1b probe).
+- Zero rows: either the row is gone (`NotFound`) or the version moved on (`Stale`). Told apart
+  in one round trip by a CTE that also returns the row's current version (§12 #31), which
+  `Stale` carries, for a 412.
 - The main book's §8.8 did this by hand; stockroom's `PATCH /products/{sku}` does it with
   `coalesce($2, version)`.
 
@@ -100,7 +104,7 @@ Plan:
 ## Side by side
 
 An edit from two admin tabs: by hand (stockroom's `PATCH /products/{sku}`) · shelf
-(`ProductPatch { … }.apply(&db, &id, version)`, proposed) · SeaORM (`ActiveModel` with `Set`
+(`ProductPatch { …, version }.apply(&db, &id)`, built) · SeaORM (`ActiveModel` with `Set`
 and `NotSet`, check).
 
 ## In stockroom
@@ -130,9 +134,10 @@ Plan:
    which.
 3. Add `#[shelf(version)]` on a `bigint`. *Hint:* the bound on the field's type.
 
-> **Open questions.** (1) Which design, by measurement (S1b step 5). (2) Telling `Stale` from
-> `NotFound` in one round trip (S1b probe). (3) The serde helper for `Option<Option<T>>` (check
-> which crate or function is current).
+> **Open questions.** Settled in S1b: design (c), by measurement (§12 #33, §10); `Stale` and
+> `NotFound` in one round trip (§12 #31); the patch carries the version it was made against, in
+> a `#[shelf(version)]` field. Still open: the serde helper for `Option<Option<T>>` (check
+> which crate or function is current), and `json` fields on a patch.
 
 ---
 

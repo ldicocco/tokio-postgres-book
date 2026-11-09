@@ -20,6 +20,23 @@ pub enum Error {
         problem: Mapping,
     },
 
+    /// No row has the key a call asked for: `find`, or a write to a row that is gone.
+    #[error("{model} not found")]
+    NotFound {
+        /// The model.
+        model: &'static str,
+    },
+
+    /// A versioned update found the row at another version than it expected: someone else
+    /// changed it since it was read.
+    #[error("{model} has changed since it was read: it is now at version {current_version}")]
+    Stale {
+        /// The model.
+        model: &'static str,
+        /// The row's version now, to report (in an `ETag`, say) or to read again.
+        current_version: i64,
+    },
+
     /// The database, the connection, or the driver.
     #[error(transparent)]
     Db(#[from] tokio_postgres::Error),

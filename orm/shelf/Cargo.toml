@@ -7,7 +7,14 @@ publish.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["deadpool"]
+# The Executor impls for deadpool-postgres's pooled connections and their transactions.
+deadpool = ["dep:deadpool-postgres"]
+
 [dependencies]
+bytes = { workspace = true }
+deadpool-postgres = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 shelf-macros = { workspace = true }

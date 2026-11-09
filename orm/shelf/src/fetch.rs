@@ -5,18 +5,18 @@
 //! rows. That costs no extra round trip: `query` with a `&str` prepares the statement anyway
 //! (main book §4.1).
 //!
-//! They take tokio-postgres's `GenericClient`, so a `Client` or a `Transaction` will do (from
-//! a deadpool connection, pass `&**object`). Phase S1b replaces it with shelf's own executor.
+//! They take any [`Executor`]: a `Client` or a `Transaction`, from tokio-postgres or from
+//! deadpool (a pooled connection is passed as `&object`, and its statement cache is used).
 
-use tokio_postgres::GenericClient;
 use tokio_postgres::types::ToSql;
 
 use crate::error::Error;
+use crate::executor::Executor;
 use crate::row::FromRow;
 
 /// Every row of `sql`, read into `T`.
 pub async fn fetch_all<T: FromRow>(
-    db: &impl GenericClient,
+    db: &impl Executor,
     sql: &str,
     params: &[&(dyn ToSql + Sync)],
 ) -> Result<Vec<T>, Error> {
@@ -30,7 +30,7 @@ pub async fn fetch_all<T: FromRow>(
 
 /// The one row of `sql`, read into `T`; fails if there are none, or several.
 pub async fn fetch_one<T: FromRow>(
-    db: &impl GenericClient,
+    db: &impl Executor,
     sql: &str,
     params: &[&(dyn ToSql + Sync)],
 ) -> Result<T, Error> {
@@ -42,7 +42,7 @@ pub async fn fetch_one<T: FromRow>(
 
 /// The row of `sql`, read into `T`, if there is one; fails if there are several.
 pub async fn fetch_opt<T: FromRow>(
-    db: &impl GenericClient,
+    db: &impl Executor,
     sql: &str,
     params: &[&(dyn ToSql + Sync)],
 ) -> Result<Option<T>, Error> {

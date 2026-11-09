@@ -2,14 +2,14 @@
 
 > **Building an ORM on tokio-postgres** · Previous: [Chapter 6 — Tables: the model derive](06-tables.md) · Next: [Chapter 8 — Writing rows: insert, update, delete, upsert](08-writing.md)
 
-> **Sketch, 7 November 2026.** A plan of this chapter, not its text; it will be replaced by
+> **Sketch, 9 November 2026.** A plan of this chapter, not its text; it will be replaced by
 > the chapter. Part II, second chapter. Builds on Chapter 6, and on main book
 > [Chapter 4](../../book/04-prepared-statements.md) (round trips),
 > [Chapter 6](../../book/06-errors.md) (`DbError`, `SqlState`),
 > [Chapter 8](../../book/08-transactions.md) (the sealed `GenericClient`, the retry helper) and
 > [Chapter 13](../../book/13-pooling.md) (deadpool's `prepare_cached`). shelf: the `Executor`
 > trait in `shelf/src/executor.rs`, the `deadpool` feature, `Error::NotFound` and `Error::Stale`
-> (proposed, S1b step 2); `fetch_*` move onto it. Crates: tokio-postgres 0.7.18,
+> (built, S1b); `fetch_*` take it. Findings: §12 #28 (`Send`), #29 (the strategies). Crates: tokio-postgres 0.7.18,
 > deadpool-postgres 0.14.2. Findings: root PLAN.md §12 #6, #33, #42. Plan:
 > [orm/PLAN.md](../PLAN.md) §4.5, §7, Chapter 7; §13, S1b steps 1–2.
 
@@ -46,11 +46,14 @@ Plan:
 ## 7.2 The `Executor` trait
 
 Plan:
-- The calls shelf needs: prepare (cached where possible), `query`, `query_one`, `query_opt`,
-  `execute` (proposed list).
+- The calls shelf needs: `prepare` (cached where possible), `query`, `query_one`, `query_opt`,
+  `execute` (built).
 - Methods returning `impl Future<Output = …> + Send`, and a **Rust refresher** on why the
   `Send` must be written: a handler's future must be `Send`, and a trait method's future is
-  not known to be unless the trait says so.
+  not known to be unless the trait says so. The error `async fn` in the trait gives, with
+  rustc's own suggestion, is captured in PLAN.md §12 #28 (re-capture it when writing).
+- `&object`, not `&**object`, for a pooled connection: the second is the plain `Client`, and
+  skips the cache.
 - Impls for `tokio_postgres::Client`, `tokio_postgres::Transaction<'_>` and, behind the
   default feature `deadpool`, `deadpool_postgres::Client` and its `Transaction<'_>`.
 - `fetch_*` moved onto it; the tests unchanged.
@@ -63,8 +66,10 @@ Plan:
   (root PLAN.md §12 #42: about 1 ms the first time, about 3 µs after).
 - `query_typed`: one round trip and no named statement, but the parameter types must be known,
   and `resolve` has no `Statement` to check against before the query.
-- Measured through lagproxy at 5 ms each way (root PLAN.md §12 #33: a round trip cost 15.3 ms);
-  the choice per executor recorded in PLAN.md §10.
+- Measured through lagproxy at 5 ms each way (PLAN.md §12 #29; a round trip was about 13.5 ms
+  that day): `query(&str)` and prepare-then-query about 27 ms, `query_typed` and a cached
+  statement about 13.7 ms; the choice per executor is in PLAN.md §10. Re-measure for the
+  chapter with a `needs=lagproxy` program.
 
 ## 7.4 Transactions
 
@@ -76,7 +81,7 @@ Plan:
 ## 7.5 `shelf::Error`
 
 Plan:
-- The variants: `Mapping` and `Db` (built), `NotFound` and `Stale` (proposed), each with what
+- The variants: `Mapping` and `Db` (built), `NotFound` and `Stale` (built, S1b), each with what
   the caller can do about it.
 - Constraint names stay the application's: stockroom's `AppError` maps `SqlState` and
   constraint names to statuses; an `impl From<shelf::Error> for AppError` shows the pattern.
@@ -94,7 +99,7 @@ Plan:
 ## Side by side
 
 One repository function over a client, a transaction and a pool: by hand (generic over
-deadpool's `GenericClient`, as stockroom does) · shelf (`&impl Executor`, proposed) · sqlx
+deadpool's `GenericClient`, as stockroom does) · shelf (`&impl Executor`, built) · sqlx
 (`impl Executor<'_, Database = Postgres>`, check).
 
 ## Claims
@@ -121,10 +126,10 @@ Plan:
 3. Map `Error::Stale` to 412 and `NotFound` to 404 in an axum handler. *Hint:* main book
    Chapter 15.
 
-> **Open questions.** (1) The `Send` futures inside axum handlers and the retry helper must
-> be probed before the trait is fixed (S1b step 1). (2) What a plain `Client` does without a
-> cache: prepare every time, or `query_typed`. (3) Where `resolve`'s result lives when
-> statements are cached (Chapter 5's open question).
+> **Open questions.** Settled in S1b: the `Send` futures work in handlers, spawned tasks and
+> the retry helper (§12 #28); a plain `Client` prepares every time (§12 #29, §10). Still open:
+> where `resolve`'s result lives when statements are cached (Chapter 5's open question;
+> `resolve` runs per call today).
 
 ---
 

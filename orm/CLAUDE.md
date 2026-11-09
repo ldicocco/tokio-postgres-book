@@ -25,7 +25,11 @@ writing output from memory. This file lists only what differs or is added.
 - **Chapters 0–4 are written** (2026-11-09), ahead of S1b at the user's request: 1–4 are
   `current`, and 0 is a `draft` until its §0.3 (the API in ten lines) can run after S1c
   (PLAN.md §10). The other chapters are still sketches.
-- **Next: phase S1b, the model.** PLAN.md §13 is its checklist; a new session starts there.
+- **Phase S1b (the model) is done** (2026-11-09): the `Executor`, `#[derive(Table)]`,
+  `#[derive(Insert)]` (with `Upsert`), `#[derive(Patch)]`, `version` and `updated_at`. PLAN.md
+  §4.0b says what exists and where, §10 the decisions, §12 #28–#33 the probes and measurements.
+- **Next: phase S1c, queries and relations.** PLAN.md §13 is its checklist; a new session
+  starts there.
 
 ## Commands
 
@@ -68,7 +72,15 @@ the workspace's cargo test, clippy and fmt cover the orm crates, and the main bo
 - **A new derive** gets: a module in shelf-codegen with `pub fn expand`, a
   `#[proc_macro_derive(Name, attributes(shelf))]` shell in shelf-macros, a re-export with its
   attribute table in `shelf/src/lib.rs`, an arm in `shelf-codegen/tests/expand.rs`'s `expand`,
-  and its keys in `attrs.rs` (which every derive parses, so each must ignore the others' keys).
+  and its keys in `attrs.rs`: a branch in `parse_key`, the key in `FIELD_KEYS` or
+  `CONTAINER_KEYS`, and its owner in `KEYS`. Every derive parses every key and reports only the
+  errors of the keys it owns (`Derive::reports`), so a struct with two derives hears about a
+  mistake once; a derive alone on its struct (`Insert`, `Patch`) reports everything.
+- **SQL that combines another type's constants** is joined at compile time with
+  `__private::{total_len, join, utf8}` when it is plain text (`Insert`), and built once in a
+  `LazyLock` when it needs computing, such as `$n` numbers that depend on the model's key
+  (`Patch`). Generated code spells primitives `::core::primitive::str` (the hygiene test
+  defines `type str`).
 - **Generated code reads columns through `__private::{column, get}`**, which are bounded by
   `shelf::FromColumn` (not `FromSqlOwned`) so that a type error reads well (PLAN.md §12 #11).
 - **SQL written by a derive** quotes identifiers at macro time, passes every value as a `$n`
@@ -119,7 +131,7 @@ The root list applies, plus:
   and gives each test a schema `t_<uuidv7>` (on the connection's `search_path`), dropped
   afterwards.
 
-## Verified facts (S0, S1a, Chapters 0–4)
+## Verified facts (S0, S1a, Chapters 0–4, S1b)
 
 - syn 3.0.9's derive types have the same shape as syn 2's (`DeriveInput`, `Data`, `Fields`),
   except `Field`: `mutability` became `modifiers: FieldModifiers`, and `default` is new.
@@ -156,6 +168,15 @@ The root list applies, plus:
   JSON `null` (postgres-types' `Json<T>` refuses it whatever `T` is; PLAN.md §12 #26).
 - The sources of darling 0.24.1 and sqlx 0.9.0 (sqlx-core, sqlx-macros-core, sqlx-postgres)
   are in `~/.cargo/registry/src/`; quote their behaviour from there.
+- An executor trait whose methods return `impl Future + Send` works in axum handlers,
+  `tokio::spawn` and the retry helper; `async fn` in the trait does not (PLAN.md §12 #28).
+  Pass a pooled connection as `&object`: `&**object` would skip deadpool's statement cache.
+- `CASE WHEN $f THEN $v ELSE col END` and `coalesce($n, col)` type a domain column's parameter as
+  the base type; `SET col = $n` and `VALUES ($n)` as the domain itself (PLAN.md §12 #30).
+- A `const` item can join `&'static str` constants of other types with `const fn`s, but not in
+  a generic impl whose inner consts mention its parameters (E0401, PLAN.md §12 #32).
+- A `const _: () = { if … { panic!("…") } };` in generated code turns a cross-type rule into a
+  build error (E0080, "evaluation panicked: …"), as `Patch` does for the version field.
 - **Probing compiler errors**: a scratch workspace with a proc-macro crate and a user crate that
   depends on shelf by path (`shelf = { path = "…/orm/shelf" }`) builds with `cargo build
   --offline`; run cargo from the scratch workspace's root, so that paths in the errors read

@@ -2,13 +2,14 @@
 
 > **Building an ORM on tokio-postgres** · Previous: [Chapter 7 — The executor and shelf's errors](07-executor.md) · Next: [Chapter 9 — Partial updates and optimistic locking](09-patch-and-versions.md)
 
-> **Sketch, 7 November 2026.** A plan of this chapter, not its text; it will be replaced by
+> **Sketch, 9 November 2026.** A plan of this chapter, not its text; it will be replaced by
 > the chapter. Part II, third chapter. Builds on Chapters 6 and 7, and on main book
 > [Chapter 2](../../book/02-queries.md) (`RETURNING`, `ON CONFLICT`),
 > [Chapter 6](../../book/06-errors.md) (constraint errors) and
 > [Chapter 10](../../book/10-copy.md) (`MERGE`). shelf: `#[derive(Insert)]` in
-> `shelf-codegen/src/insert.rs`, `update`, `delete`, `delete_by_key` and upsert in
-> `shelf/src/write.rs` (proposed, S1b step 4). Crates: tokio-postgres 0.7.18. PostgreSQL:
+> `shelf-codegen/src/insert.rs`; `Insert` and `Upsert` in `shelf/src/write.rs`; `update`,
+> `delete` and `delete_by_key` on `Table`; the compile-time join in `shelf/src/sql.rs`; `Json`
+> writes (built, S1b). Findings: §12 #30, #32. Crates: tokio-postgres 0.7.18. PostgreSQL:
 > `uuidv7()` (PG 18), `MERGE … RETURNING` (PG 17). Plan: [orm/PLAN.md](../PLAN.md) §4.2–§4.4,
 > §7, Chapter 8; §13, S1b step 4.
 
@@ -39,17 +40,20 @@ one says what happens when a constraint refuses it.
 Plan:
 - `#[shelf(model = Product)] struct NewProduct { sku, name, price_cents, tags }`: the table
   and the `RETURNING` list come from the model.
-- The SQL: `INSERT INTO "products" ("sku", …) VALUES ($1, …) RETURNING "id", …`, built once
-  (`LazyLock`, Chapter 6) because the model's names are not literals here.
-- `new_product.insert(&db) -> Result<Product, Error>` (proposed).
+- The SQL: `INSERT INTO "products" ("sku", …) VALUES ($1, …) RETURNING "id", …`, a constant
+  joined at compile time from the model's `TABLE` and `COLUMNS` (Chapter 6, §12 #32).
+- `new_product.insert(&db) -> Result<Product, Error>` (built). A `New…` struct may borrow
+  (`sku: &'a str`), but not have type parameters.
 
 ## 8.2 Database defaults
 
 Plan:
 - `uuidv7()` (PG 18; verify on the server), `now()`, identity columns: the model marks them
   `generated`, the `New…` struct leaves them out.
-- What happens if a `New…` struct names a `generated` column: a compile error from the derive
-  (proposed), or the database's.
+- What happens if a `New…` struct names a `generated` column: the database's error, since the
+  `Insert` derive does not know which of the model's columns are generated (to capture).
+- A **Pitfall**: a `String` for a domain column is refused on the client by `INSERT` and by
+  `update`'s `SET` (§12 #30; main book §12 #1); the field's type must accept the domain.
 
 ## 8.3 Update and delete
 
@@ -62,8 +66,8 @@ Plan:
 ## 8.4 Upsert
 
 Plan:
-- `ON CONFLICT ("sku") DO UPDATE SET … = excluded.…`: the conflict target named by an
-  attribute or an argument (open question).
+- `ON CONFLICT ("sku") DO UPDATE SET … = excluded.…`: the target is the fields marked
+  `#[shelf(conflict)]`, and the `Upsert` trait exists only when there are some (built).
 - `DO NOTHING` returns no row on conflict, so the method returns an `Option`.
 - `MERGE … RETURNING merge_action()` (PG 17) as the statement for a batch with several
   outcomes; main book Chapter 10's import does it by hand.
@@ -86,7 +90,7 @@ Plan:
 ## Side by side
 
 Inserting a row and reading it back: by hand (stockroom's `stores::create`) · shelf
-(`NewStore { … }.insert(&db)`, proposed) · SeaORM (`ActiveModel { … }.insert(&db)`, check).
+(`NewStore { … }.insert(&db)`, built) · SeaORM (`ActiveModel { … }.insert(&db)`, check).
 
 ## In stockroom
 
@@ -119,10 +123,9 @@ Plan:
 3. Write the upsert with `MERGE` and compare. *Hint:* `merge_action()` tells you which branch
    ran.
 
-> **Open questions.** (1) Naming the model (`model = Product`) and building the SQL with
-> `LazyLock` (S1b probe). (2) How the upsert's conflict target is given: an attribute on the
-> `New…` struct, or an argument. (3) Whether `update` writes every column or only changed ones
-> (that is `Patch`, Chapter 9).
+> **Open questions.** Settled in S1b (PLAN.md §10, "Writes"): `model = Product` with SQL joined
+> at compile time; the conflict target as field flags; `update` writes every column and returns
+> the row. Still open: whether `DO NOTHING` (returning `Option`) earns a method.
 
 ---
 

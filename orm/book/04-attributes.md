@@ -217,36 +217,44 @@ pub struct Keyed<T> {
 // … `FieldAttrs` has an `Option<Keyed<…>>` per key: `Keyed<LitStr>` for `rename`, and so on
 
 impl FieldAttrs {
-    pub fn parse(attrs: &[Attribute], errors: &mut Errors) -> Self {
+    pub fn parse(attrs: &[Attribute], derive: Derive, errors: &mut Errors) -> Self {
         let mut out = FieldAttrs::default();
         for attr in shelf_attrs(attrs) {
+            // The key being parsed, so that its error goes to the derive that owns it.
+            let mut key = None;
             let parsed = attr.parse_nested_meta(|meta| {
-                if meta.path.is_ident("rename") {
-                    let lit: LitStr = meta.value()?.parse()?;
-                    if lit.value().is_empty() {
-                        return Err(Error::new_spanned(&lit, "a column name cannot be empty"));
-                    }
-                    once(&mut out.rename, lit, &meta)
-                } else if meta.path.is_ident("skip") {
-                    flag(&mut out.skip, &meta)
-                    // … `flatten` and `json` the same way
-                } else if meta.path.is_ident("try_from") {
-                    let ty = type_value(&meta)?;
-                    once(&mut out.try_from, ty, &meta)
-                } else {
-                    Err(unknown(
-                        &meta,
-                        "a field",
-                        &["rename", "skip", "flatten", "json", "try_from"],
-                    ))
+                key = known(&meta, FIELD_KEYS);
+                let parsed = out.parse_key(&meta);
+                if parsed.is_ok() {
+                    key = None;
                 }
+                parsed
             });
-            if let Err(error) = parsed {
+            if let Err(error) = parsed
+                && derive.reports(key)
+            {
                 errors.push(error);
             }
         }
-        out.check_combinations(errors);
+        if derive == Derive::FromRow {
+            out.check_combinations(errors);
+        }
         out
+    }
+
+    fn parse_key(&mut self, meta: &ParseNestedMeta) -> Result<()> {
+        if meta.path.is_ident("rename") {
+            let lit = name_value(meta, "a column name")?;
+            once(&mut self.rename, lit, meta)
+        } else if meta.path.is_ident("skip") {
+            flag(&mut self.skip, meta)
+            // … `flatten`, `json`, `primary_key` and `generated` the same way
+        } else if meta.path.is_ident("try_from") {
+            let ty = type_value(meta)?;
+            once(&mut self.try_from, ty, meta)
+        } else {
+            Err(unknown(meta, "a field", FIELD_KEYS))
+        }
     }
     // …
 }
@@ -254,11 +262,13 @@ impl FieldAttrs {
 
 [orm/shelf-codegen/src/attrs.rs](../shelf-codegen/src/attrs.rs)
 
-Every value is kept as a `Keyed<T>`: the value, and the span of the key that set it, so that a
-later check can point at `json` or `rename` in the user's source (§4.4). A flag is a
-`Keyed<()>`: all that matters is that it was there, and where. Errors are not returned but
-pushed onto `errors`, which collects them (§4.4). The rest of the work is in four small
-functions:
+The closure hands each key to `parse_key`, which holds the stage's chain of `if`s. Every value
+is kept as a `Keyed<T>`: the value, and the span of the key that set it, so that a later check
+can point at `json` or `rename` in the user's source (§4.4). A flag is a `Keyed<()>`: all that
+matters is that it was there, and where. `name_value` reads a string literal and refuses an
+empty one. Errors are not returned but pushed onto `errors`, which collects them (§4.4); the
+`derive` argument and the `key` the closure records decide whether this derive reports them at
+all, which the end of this section explains. The rest of the work is in four small functions:
 
 ~~~rust
 // orm/shelf-codegen/src/attrs.rs (excerpt)
@@ -375,12 +385,50 @@ A key whose value is itself a list, `key(…)`, is parsed by calling `meta.parse
 inside the closure: it walks the inner list with the same rules. `FromRow` has no such key; the
 relations of Chapter 11 will.
 
-**One namespace, every key.** Because all of shelf's derives share `#[shelf(…)]`, each of them
-will parse every key and then use the ones that concern it. An unknown key is still refused, so
-that a typo cannot hide behind another derive. Today the only key on the struct is
-`rename_all`, and `table`, which belongs to Chapter 6's `Table` derive, does not exist yet, so
-`FromRow` refuses it (`tests/ui/unknown_attributes.rs`). Chapter 6 adds it to the shared parser,
-and `FromRow` then ignores it.
+**One namespace, every key.** All of shelf's derives share `#[shelf(…)]`, so each of them
+parses every key: `FromRow` and Chapter 6's `Table` sit on the same struct, and must read the
+same column names. Reporting is the problem. A derive cannot see which other derives the struct
+has (§3.1), so if each reported every mistake, a struct with two derives would hear about each
+one twice. shelf gives every key an owner, the derive that reports its errors:
+
+~~~rust
+// orm/shelf-codegen/src/attrs.rs (excerpt)
+impl Derive {
+    /// Whether this derive reports an error found while parsing `key`. `None` is a key no
+    /// derive knows, or a mistake in the attribute's syntax: `FromRow` reports those, because a
+    /// `Table` always comes with it.
+    pub fn reports(self, key: Option<&str>) -> bool {
+        match (self, key) {
+            (Derive::Insert | Derive::Patch, _) => true,
+            (_, None) => self == Derive::FromRow,
+            (_, Some(key)) => KEYS
+                .iter()
+                .any(|(name, owner)| *name == key && *owner == self),
+        }
+    }
+}
+
+/// Every key, and the derive that owns it: the one that reports its errors. A derive may read
+/// a key it does not own (`Table` reads `rename` to name its columns).
+const KEYS: &[(&str, Derive)] = &[
+    ("rename_all", Derive::FromRow),
+    ("table", Derive::Table),
+    // …
+    ("primary_key", Derive::Table),
+    ("generated", Derive::Table),
+    // …
+];
+~~~
+
+[orm/shelf-codegen/src/attrs.rs](../shelf-codegen/src/attrs.rs)
+
+That is why the closure records which key it is parsing, and forgets it once the key has parsed:
+an error then belongs to that key's owner, and an error with no key (an unknown key, or a
+syntax mistake between keys) to `FromRow`. Chapter 8's `Insert` and Chapter 9's `Patch` are
+each the only shelf derive on their struct, so they report every mistake themselves. An unknown key is still refused, so a typo cannot
+hide behind another derive: `tabel = "products"` is reported, with the keys that do exist
+(`tests/ui/unknown_attributes.rs`). The combinations of §4.4 are `FromRow`'s, so only it checks
+them.
 
 ## 4.3 The six attributes
 
@@ -764,10 +812,15 @@ pub fn expand(input: &DeriveInput) -> Result<TokenStream> {
              instead of `&str`, and `Vec<u8>` instead of `&[u8]`",
         ));
     }
-    let container = ContainerAttrs::parse(&input.attrs, &mut errors);
+    let container = ContainerAttrs::parse(&input.attrs, Derive::FromRow, &mut errors);
     let fields: Vec<(&Field, FieldAttrs)> = fields
         .iter()
-        .map(|field| (field, FieldAttrs::parse(&field.attrs, &mut errors)))
+        .map(|field| {
+            (
+                field,
+                FieldAttrs::parse(&field.attrs, Derive::FromRow, &mut errors),
+            )
+        })
         .collect();
     errors.finish()?;
     // …
@@ -807,7 +860,7 @@ fn main() {
 
 ```text
 unknown case: expected "snake_case", "camelCase", "PascalCase" or "SCREAMING_SNAKE_CASE"
-unknown shelf attribute `renamed` on a field; expected `rename`, `skip`, `flatten`, `json`, `try_from`
+unknown shelf attribute `renamed` on a field; expected `rename`, `skip`, `flatten`, `json`, `try_from`, `primary_key`, `generated`, `version`, `updated_at`, `conflict`
 `rename` cannot apply to a field marked `skip`, which is not read
 `try_from` and `json` cannot be combined: read the JSON into a type that converts itself
 ```
@@ -1601,8 +1654,9 @@ is not part of `Read`, because it changes the column's name, not how its value i
 
 Adding an attribute to shelf touches these places, which is also a map of the chapter:
 
-1. **`attrs.rs`**: the key in `FieldAttrs` (or `ContainerAttrs`), a branch in `parse`, and any
-   combination it cannot join in `check_combinations`.
+1. **`attrs.rs`**: the key in `FieldAttrs` (or `ContainerAttrs`), a branch in `parse_key`, its
+   owner in `KEYS` and its place in `FIELD_KEYS` (or `CONTAINER_KEYS`), and any combination it
+   cannot join in `check_combinations`.
 2. **`from_row.rs`**: what the field generates, usually a new `Read` arm, with the bound
    `add_if_generic` should add for a generic field (`generics.rs`).
 3. **An expansion test**, `orm/shelf-codegen/tests/expand/NAME.rs`, which pins down the code

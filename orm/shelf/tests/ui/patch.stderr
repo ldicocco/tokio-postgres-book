@@ -1,0 +1,53 @@
+error: a Patch field is an `Option`: `None` leaves the column as it is and `Some` sets it (`Option<Option<T>>` for a nullable column, whose `Some(None)` sets NULL)
+  --> tests/ui/patch.rs:18:10
+   |
+18 |     sku: String,
+   |          ^^^^^^
+
+error: `json` has no meaning on a Patch struct; it belongs on the model
+  --> tests/ui/patch.rs:19:13
+   |
+19 |     #[shelf(json)]
+   |             ^^^^
+
+error: a Patch struct cannot have type parameters: its statement is built once for its type (lifetimes are fine, for fields that borrow)
+  --> tests/ui/patch.rs:41:17
+   |
+41 | struct Mistakes<T> {
+   |                 ^
+
+error: `schema` belongs on the model: a Patch changes its model's table
+  --> tests/ui/patch.rs:40:23
+   |
+40 | #[shelf(model = Note, schema = "public")]
+   |                       ^^^^^^
+
+error: `try_from` has no meaning on a Patch struct, which writes each value as it is
+  --> tests/ui/patch.rs:42:13
+   |
+42 |     #[shelf(try_from = i64)]
+   |             ^^^^^^^^
+
+error: a Patch has one `version` field
+  --> tests/ui/patch.rs:46:13
+   |
+46 |     #[shelf(version)]
+   |             ^^^^^^^
+
+error: a Patch needs at least one field to set
+  --> tests/ui/patch.rs:52:8
+   |
+52 | struct Empty {
+   |        ^^^^^
+
+error[E0080]: evaluation panicked: NoVersion: the model Product has a `version` column, so the patch needs a #[shelf(version)] field holding the version it was made against
+  --> tests/ui/patch.rs:25:10
+   |
+25 | #[derive(Patch)]
+   |          ^^^^^ evaluation of `_` failed here
+
+error[E0080]: evaluation panicked: ExtraVersion: the model Note has no `version` column, so the patch's #[shelf(version)] field has nothing to be checked against
+  --> tests/ui/patch.rs:57:10
+   |
+57 | #[derive(Patch)]
+   |          ^^^^^ evaluation of `_` failed here

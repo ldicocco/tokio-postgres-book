@@ -100,6 +100,16 @@ impl TestDb {
         connect(&self.config).await.0
     }
 
+    /// A deadpool pool of up to `size` connections, each with this test's `search_path`.
+    #[cfg(feature = "deadpool")]
+    pub fn pool(&self, size: usize) -> deadpool_postgres::Pool {
+        let manager = deadpool_postgres::Manager::new(self.config.clone(), NoTls);
+        deadpool_postgres::Pool::builder(manager)
+            .max_size(size)
+            .build()
+            .expect("a pool")
+    }
+
     /// A new connection with `sql` already run on it: usually the test's `CREATE TABLE`s.
     pub async fn client_with(&self, sql: &str) -> Client {
         let client = self.client().await;

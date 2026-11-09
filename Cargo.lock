@@ -1607,6 +1607,8 @@ dependencies = [
 name = "shelf"
 version = "0.1.0"
 dependencies = [
+ "bytes",
+ "deadpool-postgres",
  "dotenvy",
  "serde",
  "serde_json",
