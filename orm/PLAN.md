@@ -22,8 +22,12 @@ first (§12 #34–#41), with the N+1 and bulk measurements (§12 #42, #44–#46)
 **sketch** in its place ([SKETCHES.md](SKETCHES.md)); those of Chapters 6–13 describe the
 design as built. **Chapters 0–4 were written on 2026-11-09**, ahead of S1b at the user's request
 (§10): Chapters 1–4 are `current`, and Chapter 0 is a `draft` until its §0.3 runs (S3a, now
-that S1c is built). The book PDF, `orm/book/shelf-book.pdf`, shows the written chapters and the
-sketches. The next phase is S2, the capstone (§9, and §13 step by step).
+that S1c is built). **Phase S2 (the capstone) done on 2026-11-09** (§4.0d):
+`orm/stockroom-shelf` serves stockroom's API with stores, products and orders on shelf, its
+ported routes answering as stockroom's do (one test suite run against both routers), each step
+probed or measured first (§12 #47–#56). The book PDF, `orm/book/shelf-book.pdf`, shows the
+written chapters and the sketches. The next phase is S3a: Chapter 5 and Chapter 0's §0.3 (§9,
+and §13 step by step).
 
 ---
 
@@ -107,7 +111,7 @@ holds the finished crate. The book handles it in five ways:
 
 Items marked **(built, S1a)**, **(built, S1b)** or **(built, S1c)** exist and are tested; since
 S1c, every item of the target design does. §4.0 describes what S1a built, §4.0b what S1b built,
-and §4.0c what S1c built.
+§4.0c what S1c built, and §4.0d the capstone, built in S2.
 
 ### 4.0 As built: the mapping (S1a, 2026-11-07)
 
@@ -153,6 +157,19 @@ and §4.0c what S1c built.
 | `shelf::Error` | `shelf/src/error.rs` | Gained `Schema { model, mismatches: Vec<Mismatch> }`, `Unsupported { model, message }`, and `Mapping::Nullable` |
 | Tests | `orm/shelf/tests/`, `shelf-codegen/tests/expand/` | `query.rs`, `relations.rs`, `bulk.rs`, `stream.rs`, `verify.rs` against PostgreSQL; UI tests `query.rs`, `relations.rs`, `stream.rs`; expansions `columns`, `relations`; the hygiene test with relations through a raw-identifier foreign key; benchmarks `bench_relations` and `bench_bulk` (§12 #42, #44) |
 
+### 4.0d As built: the capstone, `orm/stockroom-shelf` (S2, 2026-11-09)
+
+| Item | Where | What it is |
+|---|---|---|
+| The crate | `orm/stockroom-shelf/` | A library and a binary depending on `stockroom` and `shelf`. Reused from stockroom unchanged: the migrations, the domain types, `AppError`, `in_transaction`, `CancelOnDrop`, `AppState` and the `Db`, `AppJson` and `AppQuery` extractors, `etag` and `if_match`, the request and response types of orders, and stockroom's router for every route not ported |
+| Models | `src/repo/{stores,products,stock,orders}.rs` | `Store` and `NewStore`; `Product`, `NewProduct` and `ProductPatch` (its `version` set by `update`, `#[serde(skip)]`); `Stock` (composite key, `available: Option<i32>`, `generated`); `OrderRow` (`belongs_to(Store)`, `has_many(LineRow, as = lines)`, `#[shelf(json)] customer`), `NewOrderRow<'a>` (a borrowed `json` field), `LineRow` (`belongs_to(Product)`, composite key) and `NewLineRow`. Each derives serde beside shelf, and stores' and products' models are their JSON |
+| The repository | `src/repo/` | stockroom's functions for the ported routes, over `&impl shelf::Executor`: `stores::{list, create, by_code}`, `products::{page, by_sku, create, update}`, `orders::{place, get}`; `verify_models` checks the five models, pipelined, every error at once. `place` keeps the reservation's SQL (`RESERVE`), pipelined in product-id order, and inserts the lines with `insert_many` |
+| Errors | `src/error.rs` | `app_error`, used with `map_err` (§10, §12 #49) |
+| The router | `src/http/` | stockroom's handlers for the ported routes, calling this repository; `/products/stream` runs shelf's `ModelStream` inside a body that owns the connection (§12 #52); the static paths `/products/export.csv`, `/products/import` and `/orders/events` go to stockroom by name, the rest by fallback (§12 #50) |
+| The binary | `src/main.rs`, `src/app.rs` | `stockroom-shelf verify` (exit status 1 and every mismatch) and `stockroom-shelf serve` (stockroom's `serve`, with `verify` before the first request); migrating and seeding are stockroom's commands |
+| Tests | `tests/` | `routes.rs`: 11 scenarios against both routers (§12 #53), the statement-cache check, the client that hangs up mid-stream; `concurrency.rs`: the oversell and deadlock tests on the port, and 30 concurrent patches without `If-Match`; `models.rs`: `verify` on stockroom's schema, and on one that moved on |
+| Measurements | `examples/line_for_line.rs` | Statements prepared and run, and round trips, per ported function, through a message counter and lagproxy (§12 #54); lines counted per item (§12 #55) |
+
 ### 4.1 Crates
 
 | Crate | Kind | Role |
@@ -161,7 +178,7 @@ and §4.0c what S1c built.
 | `orm/shelf-macros` | proc-macro | A thin shell: `parse_macro_input!`, then `shelf_codegen::<derive>::expand`, then `into_compile_error` on failure. |
 | `orm/shelf-codegen` | lib | Everything the derives generate, as functions `expand(&DeriveInput) -> syn::Result<TokenStream>`. Unit and expansion tests run here. |
 | `orm/playground` | lib + generated examples | The book's runnable examples and helpers. |
-| `orm/stockroom-shelf` | lib + bin (S2) | The capstone: stockroom's schema, migrations and domain types (`Sku`, `Address`, `OrderStatus`, `Cents`) reused through the `stockroom` crate, a repository layer on shelf, and the same axum routes for stores, products and orders. |
+| `orm/stockroom-shelf` | lib + bin **(built, S2)** | The capstone: stockroom's schema, migrations and domain types (`Sku`, `Address`, `OrderStatus`, `Cents`, `Quantity`, `Customer`) reused through the `stockroom` crate, a repository layer on shelf, and the same axum routes for stores, products and orders, with stockroom's router behind them for the rest (§4.0d). |
 
 **Why three crates:** a proc-macro crate can export only macros, so code generation that lives
 in one cannot be called by unit tests in another crate, by the book's examples, or by anything
@@ -300,7 +317,7 @@ PostgreSQL, and the main-book chapter that taught that.
 | Binary COPY from the derive | 12 | `BinaryCopyInWriter`, types from a prepared statement | 10 |
 | Streams of models | 12 | `query_raw`, `RowStream`, backpressure | 9 |
 | `verify` | 13 | `prepare`, `Statement::columns()`, the catalog for nullability | 4, 5 |
-| The capstone | 14 | deadpool, axum, `in_transaction` | 13–16 |
+| The capstone | 14 | deadpool, axum, `in_transaction`, `CancelOnDrop`; a domain, a composite, an enum, `jsonb` and a virtual column through shelf | 13–18 |
 
 ---
 
@@ -610,7 +627,7 @@ as in the main book, so that every excerpt quotes real code.
 | **Sketches** (done 2026-11-07) | A sketch for each of the 16 chapters, in place, in the format of [SKETCHES.md](SKETCHES.md); the `sketch` status and `pdf_statuses` in `book.py`; the book PDF | `book.py --book orm check` passes; the PDF is fresh |
 | **S1b. shelf: the model** (done 2026-11-09) | `Table`, `Insert` and `Patch`; `Executor` with the `deadpool` feature; `shelf::Error`; CRUD and upsert; `version` and `updated_at`; the `Patch` design chosen by measurement | The gates pass; the statement-strategy and `Patch` measurements are in §12 |
 | **S1c. shelf: queries and relations** (done 2026-11-09) | The query builder, relations, `insert_many` and COPY, streams, and `verify` | The gates pass; the N+1 and bulk tables are in §12; the query builder's compile errors have UI tests |
-| **S2. stockroom-shelf** | The capstone app and its tests | The gates pass; the ported routes give the same responses as stockroom's |
+| **S2. stockroom-shelf** (done 2026-11-09) | The capstone app and its tests | The gates pass; the ported routes give the same responses as stockroom's |
 | **S3a. Part I** (Chapters 0–4 written 2026-11-09, ahead of S1b) | Chapters 0–5 | `book.py --book orm check` passes, including excerpts and links; the chapters are `current` |
 | **S3b. Part II** | Chapters 6–9 | The same |
 | **S3c. Part III** | Chapters 10–14 and the appendix | The same |
@@ -662,6 +679,14 @@ as in the main book, so that every excerpt quotes real code.
 | What `insert_many` returns (S1c) | the rows, as the model (`RETURNING`), in the order PostgreSQL returns them, which in practice is the slice's | the count only (`copy_in` returns the count) |
 | Streams (S1c, Chapter 12's question) | `ModelStream<'a, T>` borrows the executor: a pooled connection cannot be returned with rows on the way (UI test); an HTTP body that must own its connection is the capstone's to build, as stockroom's `CancelOnDrop` | a stream that owns a pooled connection (Chapter 14) |
 | `verify` (S1c, Chapter 13's questions) | `SELECT * FROM` the table, prepared without a cache; type and name from `Table::FIELDS`, NULLs from `pg_attribute` for tables only (a view's columns are not checked for NULLs); every mismatch in `Error::Schema`, in field order; `New…` structs are not checked | the model's own `SELECT` (stops at the first missing column); reporting a view's columns as unknown; checking `NOT NULL` columns without defaults against `New…` structs (an exercise) |
+| What the capstone ports (S2) | stores (`GET`, `POST /stores`), products (`GET`, `POST /products`, `GET`, `PATCH /products/{sku}`, `POST /products/batch`, `GET /products/stream`), orders (`POST /orders`, `GET /orders/{id}`). Stock levels, adjustments and transfers, order transitions, the CSV import and export, events, reports and health stay stockroom's: their statements are the point of them (an adjustment adds to `on_hand`, which a shelf upsert cannot say) | porting only reads (the sketch's proposal); porting everything |
+| How the two routers meet (S2) | the port's routes first, then `route_service` with `stockroom_router.into_service()` for each static path a ported `{param}` would capture, then `fallback_service(stockroom_router)`; the port's timeout and trace layers are `route_layer`s, so stockroom's routes pass through stockroom's layers alone (§12 #50) | copying stockroom's whole router; making stockroom's handler modules public |
+| shelf's errors in the API (S2) | `stockroom_shelf::app_error(shelf::Error) -> AppError` with `map_err`, since the orphan rule refuses the `From` impl (§12 #49): `NotFound` → 404 with stockroom's word for the model, `Stale` → 412, `Db` through `AppError::from`, the rest 500 | an error type of the port's own (but `in_transaction` and the `Db` extractor speak `AppError`) |
+| The orders' types (S2) | stockroom's request and response types (`NewOrder`, `Order`, `OrderLine`), reused, and models named after their tables' rows (`OrderRow`, `LineRow`, `NewOrderRow`, `NewLineRow`); the response is assembled from them (`view`). Stores and products serialize their models directly, with the same JSON | response types of the port's own |
+| A `PATCH` without `If-Match` (S2) | read the row (the route has the SKU, `apply` wants the key), patch at the version read, and on `Stale` read and patch again (§12 #51) | a `version: Option<i32>` meaning "any" in shelf's `Patch` (`coalesce($n, version)`): a change to Chapter 9's design, left as an exercise |
+| `Stock.available` (S2) | `Option<i32>`, as the catalog has it (§12 #48) | `ALTER … SET NOT NULL` on stockroom's virtual column (a change to the main book's schema) |
+| `orders::get` and `place` (S2) | `get`: the order and its lines pipelined, then the store and the products pipelined, 2 round trips (the relation methods in sequence would take 3; raw SQL with joins and `FromRow`, 1, is the escape hatch Chapter 14.4 shows); `place` builds its response from the `RETURNING` rows, with no read-back (§12 #54) | the relation methods; stockroom's read-back |
+| The capstone's tests (S2) | stockroom's harness by `#[path]` (its template, its databases `stockroom_test_<uuid>`), one scenario run against both routers (`both`), the statement cache to show which handler answered, stockroom's oversell and deadlock tests on the port (§12 #53) | a harness of the port's own, in a schema per test (shelf's way) |
 | Where the comparison with other crates lives | a short table in §0.2 (who writes the SQL, when a mapping mistake is caught), toasty in prose; the appendix's phrasebook maps API names | the full table in the appendix |
 | Chapter 1's fetch helpers | the simple form (`query`, then map); shelf's prepare-first version is described and left to Chapter 5 | preparing first already in Chapter 1 |
 | Chapter 3's stage generator | new code that writes Chapter 1's impl (`from_row` with `try_get` by name), so the stage reads as Chapter 1 automated; the excerpts of the finished generator elide what Chapters 4 and 5 add | reproducing S0's generator, which was not kept |
@@ -750,47 +775,47 @@ code, and tagged with the chapter where it belongs.
 | 44 | **Bulk writes through shelf, measured beside pgload** (`cargo run -p shelf --release --example bench_bulk -- [--rows N] [--keyed]`, written by a second session from pgload's code: pgload's rows and its temporary table without constraints, one pooled connection with its statement cache, each run in a transaction rolled back, an md5 fingerprint showing every strategy stores the same rows; median of 3, ranges over 3 runs; release build, rustc 1.99.1, Apple Silicon, PG 18.6 on localhost). **20,000 rows:** `insert` in a loop 0.766–0.774 s, pipelined (64 in flight) 0.147–0.150 s, `insert_many` in batches of 1,000 0.018 s, in one call 0.016–0.017 s, `copy_in` 0.006 s; pgload, run right after: 0.756 s, 0.120 s, `unnest` batches 0.014 s, CSV COPY 0.012 s, binary COPY 0.008 s. **Into a table with a primary key and `NOT NULL` columns (`--keyed`, 5 runs):** loop 0.831–0.851 s, pipelined 0.179–0.190 s, and the batched forms noisy (WAL): batches 0.030–0.091 s, one call 0.029–0.084 s, `copy_in` 0.016–0.033 s. **2,000 rows through lagproxy at 1 ms each way:** loop 9.41–9.76 s, pipelined 0.159–0.165 s, batches 0.013–0.014 s, one call 0.009 s, `copy_in` 0.012–0.013 s; pgload 9.48–9.53 s, 0.192 s, 0.043–0.046 s, 0.045–0.047 s, 0.045–0.046 s. shelf's `copy_in` matches pgload's binary COPY; `insert_many` costs a few ms more than pgload's `unnest` because it returns and maps the rows. | 12 |
 | 45 | **pgload and `bench_bulk` time different spans**, which is why shelf's batched writes look faster through lagproxy (#44): pgload's timer wraps its whole `load()` (`apps/pgload/src/lib.rs`), with `CREATE TEMP TABLE`, `BEGIN`, a `count(*)` sent as a string (prepare, then execute) and `COMMIT`, five round trips besides the strategy; `bench_bulk` times the strategy alone. At 1 ms each way a round trip costs about 6 ms here (two batches of `insert_many`: 13–14 ms), so the five come to about 30 ms, the gap in every row. On localhost they are invisible. | 12 |
 | 46 | **Outside a transaction, each insert pays a commit**: 20,000 inserts pipelined (64 in flight) into a table with a primary key took 0.91–0.98 s when each one committed, and 0.13–0.14 s between one `BEGIN` and `COMMIT` (six runs each, a scratchpad probe on tokio-postgres alone; `synchronous_commit = on`, `wal_sync_method = open_datasync`, PG 18.6 on localhost): a commit waits for its WAL flush. So shelf's loops and pipelines belong in a transaction (main book Chapter 8), and a benchmark must say whether it uses one. | 12, 7 |
+| 47 | **What the `stockroom` crate offers a port** (S2 probe, read from its source): every module is `pub`, so its migrations (`db::migrate::{MIGRATIONS, run}`), its domain types, `AppError` (with `From<tokio_postgres::Error>`, which maps SQLSTATEs and constraint names), `db::{in_transaction, CancelOnDrop, MakeTls}`, `http::{AppState, Db, AppJson, AppQuery, etag, if_match, router, RouterOptions}` and the repository's request and response types (`repo::orders::{NewOrder, Order, OrderLine}`) can all be reused. Two things cannot: `http`'s handler modules are private (`mod products;`), so ported routes need handlers of their own; and the test harness lives in `stockroom/tests/common/mod.rs`, which no other crate can depend on, though its `TestApp { router, state }` has public fields, so a `#[path]` module can reuse it with another router. | 14 |
+| 48 | **shelf models fit stockroom's schema** (S2 probe: stockroom's own migrations run into a fresh schema of `tpbook`): `verify` passed for `Store` (the composite `Address`, postgres-types' derive passed through), `Product` (the domain `Sku` with its hand-written `accepts`, `Cents`, `text[]`, `jsonb` as `serde_json::Value`, `version`, `updated_at`), `Order` (the enum `OrderStatus`, `#[shelf(json)] customer: Customer`) and `OrderLine` (the domain `Quantity`, a composite key). **It refused `Stock`**: the virtual generated column `available` (`on_hand - reserved`, two `NOT NULL` columns) is nullable in the catalog, so an `i32` field is `Nullable` (#40); the model reads it as `Option<i32>`, since changing stockroom's schema is not this port's business. The writes worked as written: `NewOrderLine::insert_many` sends `Quantity` through `unnest($n::"…"."positive_quantity"[])`, a borrowed `#[shelf(json)] customer: &'a Customer` on an `Insert`, `Stock::find(&(store_id, product_id))`; `Product::SKU` with `gt`, `eq` and `any` takes a `Sku` (a domain parameter there is `text`, #36); the `AFTER INSERT` trigger on `orders` fired for a shelf insert (one outbox row). A constraint violation comes back as `Error::Db`, which `AppError::from` maps as stockroom does (`products_price_positive` → 422, `field: "priceCents"`). | 14 |
+| 49 | **`impl From<shelf::Error> for AppError` is refused in a third crate** (E0117, "only traits defined in the current crate can be implemented for types defined outside of the crate", with "`shelf::Error` is not defined in the current crate" and "`AppError` is not defined in the current crate", rustc 1.99.1): neither type is the port's. So the port converts with a function and `map_err`, and `?` alone does not do it (the sketch's open question 3). | 14 |
+| 50 | **Ported routes beside stockroom's, in axum 0.8.9** (S2 probe): a router with the ported routes and `fallback_service(stockroom_router)` sends unported paths to stockroom, except that a ported `/products/{sku}` captures stockroom's static `/products/stream` and `/products/export.csv` (the parameter matches; the static routes live in the other router). `route_service("/products/export.csv", stockroom_router)` panics: "Invalid route: `Router::route_service` cannot be used with `Router`s. Use `Router::nest` instead"; `stockroom_router.into_service()` is accepted, and passes the whole path on, so stockroom routes it as usual. The port names each static path a ported parameter would capture. | 14 |
+| 51 | **A shelf `Patch` always checks a version, and stockroom's `PATCH` lets a client send none** (`If-Match` absent: `version = coalesce($2, version)`, one statement). The port reads the product first anyway, since the route names a SKU and `Patch::apply` takes the key, and patches at the version it read; when another write lands in between, the patch is `Stale`, and without `If-Match` it is made again against the newer row. Each retry means another write succeeded, so the loop makes progress. `concurrent_patches_without_if_match_all_apply`: 30 patches at once, each `200`, the row at version 31. | 9, 14 |
+| 52 | **A streamed HTTP body that owns its connection, with shelf's borrowing stream inside it**: an `async_stream::try_stream!` generator takes stockroom's `CancelOnDrop` by value and calls `Product::query().stream(&*db)` inside, so the `ModelStream` borrows a local of the generator, which axum's `Body::from_stream` accepts (`Send`; compiled at the first try, rustc 1.99.1). The query then starts when the body is first polled, after the handler has returned `200`; the handler awaits the first line through `StreamExt::peekable` to keep an error before the first row an error response. stockroom's two stream tests pass on the port: one NDJSON line per product with the connection back in the pool, and a client hanging up mid-stream (50,000 rows) leaves no busy connection. | 12, 14 |
+| 53 | **One test suite, two routers**: `orm/stockroom-shelf/tests/common/mod.rs` includes stockroom's harness by `#[path]` and builds a `TestApp` with the port's router from stockroom's `AppState`; `both(scenario)` runs an `AsyncFn(&TestApp) -> Vec<Reply>` against each router, on a database of its own, and compares status, `ETag`, `Content-Type` and body reply by reply, with UUIDs and timestamps masked. 11 scenarios, 63 compared replies (counted by a run). **The replies cannot say which handler answered**, being meant to be the same; the statement cache can: on a pool of one connection, each ported route leaves shelf's SQL in deadpool's cache (`StatementCache::remove(sql, &[])`), and a stockroom route its own. A deliberate break (`OrderRow` → "orders not found") failed the comparison; a break in `noun("Product")` did not, because `by_sku` builds its own `NotFound`: a comparison covers only the paths its scenarios take. | 13, 14 |
+| 54 | **Statements and round trips per ported function** (`cargo run -p stockroom-shelf --release --example line_for_line`: one pooled connection through a counter of the client's Parse and Execute messages, then lagproxy at 5 ms each way; a round trip, a cached `SELECT 1`, 14.4 ms; median of 5 warm calls, three runs; release build, rustc 1.99.1, Apple Silicon, PG 18.6). `stores::list`, `stores::create`, `products::page` (first page; with a cursor and a tag), `by_sku` and `products::create`: 1 statement, 1 round trip on both sides (13.8–15.7 ms). **`products::update`**: stockroom 1 statement, 1 round trip (14.0–15.8 ms); shelf 2 statements (the read by SKU, the patch), 2 round trips (29.1–30.5 ms). **`orders::place`, 3 lines, in `in_transaction`**: stockroom prepares 7 statements on an empty cache, and 2 more on every call (the two `INSERT`s sent as strings), runs 9, 9.1–9.5 round trips (132.7–134.9 ms); shelf prepares 6 (`insert_many` prepares its single-row `INSERT` for the column types, and never runs it), none warm, runs 7, 5.9–6.1 round trips (85.0–90.3 ms): its inserts are cached and it builds the response from their `RETURNING` rows instead of reading the order back. **`orders::get`, 3 lines**: stockroom 2 statements, pipelined, 1 round trip (13.2–14.8 ms); shelf 4 statements (the order and its lines pipelined, then the store and the products), 2 round trips (28.4–29.9 ms): no joins. BEGIN and COMMIT are simple queries, in the round trips and not in the counts. | 14 |
+| 55 | **Lines of Rust, stockroom's repository against the port's** (blank lines and comments not counted, attributes counted; a scratchpad script per item). Stores: 57 against 34 (`TryFrom<&Row>` 12 lines gone, three derive lines added; `create` 13 → 4). Products, the ported items: 150 against 87 (`TryFrom<&Row>` 16 gone; `by_sku` 13 → 6, `create` 23 → 4, `update` 45 → 16, `page` 18 → 16). Orders, `place` and `get`: 148 against 175: the two table models and their `Insert`s (44 lines) and the assembly of the response from them (`view`, 33) are new, where stockroom's joins put the response's columns in one row; `get` is 46 lines against 10 plus `view`, `place` 96 against 86. Hand-written SQL in the ported functions: 15 statements against 1 (the reservation). | 14 |
+| 56 | **`Config::host` and `Config::port` add to a config's lists** (tokio-postgres 0.7.18, multi-host configs): setting them on a copy of a config leaves its own host first, so the measurement's first pool connected around its proxies, and every count read 0. A new `Config` with the same user, password, database and options fixes it. (A tooling finding, met while building #54.) | — |
 
 ---
 
-## 13. Next steps: phase S2, step by step
+## 13. Next steps: phase S3a, step by step
 
-**Resuming in a new session:** read this section first, then §4.0–§4.0c (what exists), §7's
-Chapter 14 and §12 (what was learnt). Each step is ticked when it is done and its gates are
-green, and a step in progress says how far it got. The work is on the branch `shelf` and may not
-be committed yet (`git status`); commit only when the user asks. **Check first that no other
-session is working in this repository** (§11): two sessions in one working tree overwrite each
-other's files.
+**Resuming in a new session:** read this section first, then §7's Chapter 5, Chapter 5's sketch
+(`orm/book/05-column-indices.md`), §12 #4, #8, #13, #15 and #21, and the written Chapters 1–4
+for the voice. Each step is ticked when it is done and its gates are green, and a step in
+progress says how far it got. The work is on the branch `shelf` and may not be committed yet
+(`git status`); commit only when the user asks. **Check first that no other session is working
+in this repository** (§11): two sessions in one working tree overwrite each other's files.
 
-**Done before:** S0, S1a and the sketches (2026-11-07); Chapters 0–4 (2026-11-09); S1b, the
-model, and S1c, queries and relations (2026-11-09, §4.0b, §4.0c). S1c changed `attrs.rs`, which
-Chapter 4 quotes; its excerpts still match. Open from earlier phases: Chapter 0's §0.3 as a
-runnable program (S3a); Chapter 5's question whether an executor should cache `Columns` with
-each prepared statement (not done: `resolve` runs per call); a serde helper for
+**Done before:** S0, S1a and the sketches (2026-11-07); Chapters 0–4 (2026-11-09); S1b, S1c
+and S2, the capstone (2026-11-09, §4.0b–§4.0d). Chapters 1–4 were written before S1b and still
+describe shelf correctly (no forward-looking text left; `book.py excerpts` passes). Open from
+earlier phases: whether an executor should cache `Columns` with each prepared statement
+(Chapter 5's open question 3: `resolve` still runs per call); a serde helper for
 `Option<Option<T>>` (Chapter 9: check what is current); `json` fields on a `Patch`; composite
-foreign keys in relations (an exercise, or a later phase).
+foreign keys in relations; an optional version on a `Patch` (Chapter 14's Exercise 2, §10).
 
-**S2, the capstone `orm/stockroom-shelf`** (§4.1, §7 Chapter 14, §9):
+**S3a, Part I** (§9: Chapters 0–5 `current`, `book.py --book orm check` passing, excerpts and
+links included):
 
-- [ ] **1. Probes** (in the scratchpad), each recorded in §12: what the `stockroom` crate
-  exposes for reuse (its migrations, `domain::{Sku, Address, OrderStatus, Cents}`,
-  `error::AppError`, `db::in_transaction`, the `Db` extractor); shelf models for stockroom's
-  tables, `verify`ed against a migrated database (a domain, a composite, an enum,
-  `Json<Customer>`, a virtual generated column as `generated`); which routes to port (stores,
-  products, orders) and which stockroom tests can drive both routers.
-- [ ] **2. The crate**: `orm/stockroom-shelf`, a library and a binary in the workspace, with
-  stockroom's schema and configuration, and `verify` for every model at startup.
-- [ ] **3. The repository layer on shelf**: stores; products (the keyset `page` with an optional
-  tag filter through the builder, `by_sku`, writes through `Insert` and `Patch` with the
-  version); orders with their lines (`has_many`, loaders), in `in_transaction`.
-- [ ] **4. The routes**: the same axum routes and bodies as stockroom's for what is ported; a
-  streamed listing whose body owns its pooled connection (root §12 #13; `ModelStream` borrows,
-  so the body needs its own owner).
-- [ ] **5. Tests**: the ported routes give the same responses as stockroom's (one test suite,
-  two routers), and the oversell test; integration tests in the crate's own schema.
-- [ ] **6. Measurements** for Chapter 14.3: lines, statements and round trips per ported
-  function, stockroom's against shelf's (a counting executor, as in `tests/relations.rs`).
-- [ ] **7. Wrap-up:** all gates (both books); §4 and §5 as built; the status lines in this file,
-  orm/CLAUDE.md and the root CLAUDE.md; Chapter 14's sketch as built; then replace this
-  checklist with the next phase's (§9: S3a, Chapter 5 and Chapter 0's §0.3), and ask the user
-  about a commit.
+- [ ] **1. Chapter 5, *Checking a statement once, not every row***: settle its sketch's open
+  questions (a relative timing in a debug build: §12 #15 measured one; how sqlx finds columns:
+  §12 #21; caching `Columns`: decide, and record it in §10), write it in place of the sketch
+  (`FromRow::{Columns, resolve, from_row_at}`, `from_rows`, `fetch_*`, `bench_mapping`), then
+  `book.py --book orm fmt --chapter 5` and `check --chapter 5`, and set it `current`.
+- [ ] **2. Chapter 0's §0.3 as a runnable program**: the ten lines of the target design, now
+  built (§4.4), against a temporary table or a schema of its own; reread Chapter 0 for anything
+  S1b–S2 changed (§0.2's comparison, §0.7); set it `current`.
+- [ ] **3. Wrap-up:** all gates (both books); the book PDF rebuilt; the status lines in this
+  file, orm/CLAUDE.md and the root CLAUDE.md; then replace this checklist with the next phase's
+  (§9: S3b, Chapters 6–9), and ask the user about a commit.

@@ -32,7 +32,11 @@ writing output from memory. This file lists only what differs or is added.
 - **Phase S1c (queries and relations) is done** (2026-11-09): the query builder, `has_many` and
   `belongs_to`, `insert_many` and `copy_in`, streams, and `verify`. PLAN.md §4.0c says what
   exists and where, §10 the decisions, §12 #34–#46 the probes and measurements.
-- **Next: phase S2, the capstone `orm/stockroom-shelf`.** PLAN.md §13 is its checklist; a new
+- **Phase S2 (the capstone) is done** (2026-11-09): `orm/stockroom-shelf` serves stockroom's
+  API with stores, products and orders on shelf and the rest through stockroom's router; one
+  test suite runs against both routers. PLAN.md §4.0d says what exists and where, §10 the
+  decisions, §12 #47–#56 the probes and measurements.
+- **Next: phase S3a, Chapter 5 and Chapter 0's §0.3.** PLAN.md §13 is its checklist; a new
   session starts there, after checking that no other session works in the repository (two did
   on 2026-11-09, and one overwrote the other's file).
 
@@ -53,6 +57,10 @@ TRYBUILD=overwrite cargo test -p shelf --test ui       # accept changed compiler
 cargo run -p shelf --release --example bench_mapping   # the mapping benchmark (DATABASE_URL)
 cargo run -p shelf --release --example bench_relations # N+1 against the loaders (via lagproxy)
 cargo run -p shelf --release --example bench_bulk -- --rows 20000 [--keyed]   # bulk writes
+cargo test -p stockroom-shelf                          # the capstone: both routers, oversell
+cargo run -p stockroom-shelf -- verify                 # the models against STOCKROOM_DATABASE_URL
+cargo run -p stockroom-shelf -- serve                  # :8080, stockroom's API (stockroom.http works)
+cargo run -p stockroom-shelf --release --example line_for_line [-- --delay-ms 5]   # Chapter 14.3
 ```
 
 `--book` also goes after the command (`book.py check --book orm`). The root gates still apply:
@@ -63,7 +71,12 @@ the workspace's cargo test, clippy and fmt cover the orm crates, and the main bo
 
 - `orm/shelf` is the runtime, and re-exports the derives. `orm/shelf-macros` is the proc-macro
   crate. `orm/shelf-codegen` holds what the derives generate. `orm/playground`
-  (`shelf-playground`) holds the book's examples.
+  (`shelf-playground`) holds the book's examples. `orm/stockroom-shelf` is the capstone, on the
+  `stockroom` crate.
+- **stockroom-shelf reuses stockroom; it never changes it.** Its handlers are stockroom's,
+  copied (stockroom's handler modules are private), and call its own repository; every route it
+  does not port goes to stockroom's router (PLAN.md §10, §12 #50). A ported route must answer as
+  stockroom's does: add its scenario to `tests/routes.rs`, which runs it against both routers.
 - **All code generation lives in shelf-codegen**, as `pub fn expand(&DeriveInput) ->
   syn::Result<TokenStream>` per derive. shelf-macros stays a shell: `parse_macro_input!`, then
   `expand`, then `into_compile_error`. Never add logic to it.
@@ -137,8 +150,11 @@ The root list applies, plus:
 - `shelf_test` holds shelf's integration tests: `tests/common/mod.rs` creates it on first use
   and gives each test a schema `t_<uuidv7>` (on the connection's `search_path`), dropped
   afterwards.
+- stockroom-shelf's tests and its `line_for_line` example use stockroom's own harness (by
+  `#[path]`), so their databases are stockroom's: `stockroom_test_<uuid>`, cloned from
+  `stockroom_template_<checksum>` and dropped at the end.
 
-## Verified facts (S0, S1a, Chapters 0–4, S1b, S1c)
+## Verified facts (S0, S1a, Chapters 0–4, S1b, S1c, S2)
 
 - syn 3.0.9's derive types have the same shape as syn 2's (`DeriveInput`, `Data`, `Fields`),
   except `Field`: `mutability` became `modifiers: FieldModifiers`, and `default` is new.
@@ -212,3 +228,20 @@ The root list applies, plus:
   depends on shelf by path (`shelf = { path = "…/orm/shelf" }`) builds with `cargo build
   --offline`; run cargo from the scratch workspace's root, so that paths in the errors read
   `user/src/bin/NAME.rs`.
+- **stockroom from another crate** (S2): every module is public, except `http`'s handler
+  modules and `app::cancel_on_signal`; its test harness is reusable by `#[path]`, without an
+  `#[allow(dead_code)]` on the module (the file has one; clippy refuses the duplicate).
+  `impl From<shelf::Error> for AppError` is E0117 outside both crates: convert with
+  `stockroom_shelf::app_error` (PLAN.md §12 #47, #49).
+- **axum 0.8.9 refuses a `Router` in `route_service`** ("Use `Router::nest` instead");
+  `router.into_service()` is accepted and keeps the path. A route `/x/{param}` captures `/x/y`
+  even when another router behind `fallback_service` has `/x/y` (§12 #50).
+- **A virtual generated column is nullable in the catalog** unless declared `NOT NULL`, so
+  `verify` refuses a non-`Option` field for stockroom's `stock.available` (§12 #48).
+- **A shelf `Patch` always checks its version** (`version = $n`): "any version" takes a read and
+  a retry on `Stale` (§12 #51). A `ModelStream` can live inside an `async_stream` generator that
+  owns its connection, which is how an HTTP body streams models (§12 #52).
+- **`Config::host` and `Config::port` append** (multi-host): a copied config keeps its first
+  host; build a new `Config` to point a connection elsewhere (§12 #56).
+- **deadpool's `StatementCache::remove(sql, &[])`** returns the statement if the connection
+  prepared it: the way a test tells which SQL a route sent (§12 #53).

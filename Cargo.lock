@@ -1753,6 +1753,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "stockroom-shelf"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "axum",
+ "clap",
+ "deadpool-postgres",
+ "dotenvy",
+ "futures-util",
+ "http-body-util",
+ "jiff",
+ "lagproxy",
+ "serde",
+ "serde_json",
+ "shelf",
+ "stockroom",
+ "tokio",
+ "tokio-postgres",
+ "tokio-util",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "stringprep"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

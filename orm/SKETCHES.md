@@ -19,7 +19,7 @@ name, as a placeholder chapter with the status `sketch` in `orm/book/book.toml`.
 contains the sketches (the registry's `pdf_statuses`), so a reader sees the whole book's shape
 before it is written. All sixteen were written on 7 November 2026, after phase S1a; Chapters 0–4
 replaced theirs on 9 November 2026, and the sketches of Chapters 6–13 were revised the same day
-to the design as built in phases S1b and S1c.
+to the design as built in phases S1b and S1c, and Chapter 14's to the capstone as built in S2.
 
 When a chapter is written, it replaces its sketch: the same file, the card gone, the open
 questions settled (in PLAN.md §10 or §12), the status `draft` and then `current`. A sketch

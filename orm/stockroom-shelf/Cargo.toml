@@ -1,0 +1,39 @@
+[package]
+name = "stockroom-shelf"
+version = "0.1.0"
+description = "stockroom's stores, products and orders on shelf, behind the same API: the capstone of the shelf book"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+# stockroom's TLS to PostgreSQL (main book Chapter 12), passed through.
+tls = ["stockroom/tls"]
+
+[dependencies]
+anyhow = { workspace = true }
+async-stream = { workspace = true }
+axum = { workspace = true }
+clap = { workspace = true }
+deadpool-postgres = { workspace = true }
+dotenvy = { workspace = true }
+futures-util = { workspace = true }
+jiff = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+shelf = { workspace = true }
+stockroom = { workspace = true }
+tokio = { workspace = true }
+tokio-postgres = { workspace = true }
+tokio-util = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+http-body-util = { workspace = true }
+lagproxy = { workspace = true }
+tower = { workspace = true }

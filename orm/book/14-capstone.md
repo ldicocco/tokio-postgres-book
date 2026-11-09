@@ -2,115 +2,163 @@
 
 > **Building an ORM on tokio-postgres** · Previous: [Chapter 13 — Trusting the mapping: schema checks and tests](13-trusting-the-mapping.md) · Next: [Appendix — attribute reference, generated code and phrasebook](15-appendix.md)
 
-> **Sketch, 7 November 2026.** A plan of this chapter, not its text; it will be replaced by
-> the chapter. Part III, fifth chapter. Builds on every chapter of this book, and on main book
+> **Sketch, 9 November 2026.** First sketched on 7 November, and revised to the capstone as
+> built in phase S2. A plan of this chapter, not its text; it will be replaced by the chapter. Part
+> III, fifth chapter. Builds on every chapter of this book, and on main book
 > [Chapter 18](../../book/18-capstone.md) (stockroom end to end) and stockroom's repository
-> layer ([stockroom/src/repo/](../../stockroom/src/repo/)). shelf: `orm/stockroom-shelf`, a
-> library and binary reusing the `stockroom` crate's migrations and domain types (proposed,
-> S2). Crates: axum 0.8.9, deadpool-postgres 0.14.2. Plan: [orm/PLAN.md](../PLAN.md) §4.1,
-> §7, Chapter 14; §9, phase S2.
+> layer ([stockroom/src/repo/](../../stockroom/src/repo/)). shelf: `orm/stockroom-shelf`
+> (built, S2), a library and binary on the `stockroom` crate. Crates: axum 0.8.9,
+> deadpool-postgres 0.14.2, async-stream 0.3.6. Plan: [orm/PLAN.md](../PLAN.md) §4.0d, §7,
+> Chapter 14; §10 (the S2 rows); §12 #47–#56.
 
 stockroom's data layer is written by hand: about a dozen repository functions, each with its
 SQL, its parameters and its `TryFrom<&Row>`. It is the code this book set out to generate.
 This chapter rewrites part of it with shelf, behind the same axum routes, against the same
 schema, with the same domain types, and compares the two line for line.
 
-The comparison is honest in both directions. shelf removes the mapping code and most of the
-everyday SQL, and the routes keep their behaviour; the chapter counts lines, statements and
-round trips to show it. It also leaves alone the code shelf should not touch: the guarded
-`UPDATE` that keeps orders from overselling, the `MERGE` import, the COPY export, the `LISTEN`
-connection. Knowing where an ORM stops is the last thing this book teaches.
+The comparison is honest in both directions. shelf removes the mapping code and almost all of
+the everyday SQL, and the ported routes answer exactly as stockroom's do: one test suite runs
+against both routers and compares every reply. But an order read back costs a round trip more,
+because shelf has no joins, and the orders module ends up longer than stockroom's. And some
+code shelf should not touch at all: the guarded `UPDATE` that keeps orders from overselling,
+the state machine of an order, the `MERGE` import, the COPY export. Knowing where an ORM stops
+is the last thing this book teaches.
 
 **In this chapter you will learn:**
 
+- how a port can reuse an application's schema, types, errors and routes, and replace only its
+  data layer
 - how shelf's models fit a real schema: a domain, a composite, an enum, a `jsonb` document, a
-  virtual column
-- what a repository function looks like rewritten with shelf, beside the original
-- how much code, how many statements and how many round trips the rewrite changes, measured
-- where shelf steps aside, and how raw SQL with `FromRow` fills the gap
-- what a production ORM would add next
+  virtual column, a composite key
+- what each repository function looks like rewritten with shelf, and what it costs in lines,
+  statements and round trips, measured
+- how to prove that a rewrite behaves as the original: one suite, two routers
+- where shelf steps aside, and how raw SQL fills the gap
 
 ---
 
 ## 14.1 The shape
 
 Plan:
-- `orm/stockroom-shelf`: the `stockroom` crate as a dependency for its migrations, its domain
-  types (`Sku`, `Address`, `OrderStatus`, `Cents`) and its error mapping; a repository layer on
-  shelf; the routes for stores, products and orders, built with the same router shape.
-- Its tests: stockroom's expectations for the ported routes, through `oneshot`, against a
-  database cloned from stockroom's template (main book Chapter 17).
+- [orm/stockroom-shelf](../stockroom-shelf/): reused from stockroom unchanged are the
+  migrations, the domain types, `AppError`, `in_transaction`, `CancelOnDrop`, the `Db`
+  extractor and the router for every route not ported (§12 #47). New: the models and the
+  repository (`src/repo/`), the handlers (stockroom's, copied: its handler modules are
+  private), the error conversion, `serve` with `verify` first.
+- The router: the ported routes, then stockroom's static paths that `/products/{sku}` would
+  capture, routed to stockroom's router by name (`into_service`: `route_service` refuses a
+  `Router`), then everything else by fallback (§12 #50, measured).
+- The errors: `impl From<shelf::Error> for AppError` is refused by the orphan rule (E0117,
+  captured; §12 #49), so the repository converts with `map_err(app_error)`. The same rule as
+  Chapter 1's tuples, met from the other side.
+- `stockroom-shelf verify` and `serve`: every model checked at startup, all mismatches at once.
 
 ## 14.2 Models for a real schema
 
 Plan:
-- `Store` with an `address` composite (postgres-types' derive, passed through); `Product` with
-  a `sku` domain (stockroom's hand-written `accepts`), `tags text[]`, `attributes jsonb` and a
-  `version`; `StockLevel` with the virtual column `available`, read-only (never written by
-  `Insert` or `Patch`: `generated`).
-- `Order` and `OrderLine` with `has_many`, and `OrderStatus` as a Postgres enum.
+- `Store` (the composite `Address`, through postgres-types' derive), `Product` (the domain
+  `Sku` with its hand-written `accepts`, `Cents`, `text[]`, `jsonb`, `version`, `updated_at`),
+  each deriving serde beside shelf: the model is the JSON.
+- `Stock`, keyed by `(store_id, product_id)`, with the virtual column `available`, read only
+  (`generated`). **`verify` refused it as an `i32`** (measured, §12 #48): a generated column is
+  nullable in the catalog unless declared `NOT NULL`, though `on_hand - reserved` of two
+  `NOT NULL` columns never is. The model says `Option<i32>`; the schema is stockroom's.
+- Orders: the API's order names its store by code and each line's product by SKU, which no row
+  holds. So stockroom's request and response types are reused, the tables get models of their
+  own (`OrderRow` with `belongs_to(Store)` and `has_many(LineRow)`, `LineRow` with
+  `belongs_to(Product)`), and the response is assembled from them. `NewLineRow` sends the
+  domain `Quantity` through `insert_many` (Chapter 12's cast from the prepared `INSERT`).
 
 ## 14.3 Line for line
 
 Plan:
-- Three functions side by side: `stores::create`, `products::update` (versioned patch), and
-  `orders::get` (an order with its lines).
-- Counted (to measure): lines of Rust, statements prepared, round trips per request.
+- Side by side: `stores::create` (13 lines, then 4), `products::update` (45, then 16, with the
+  retry below), `orders::get` (46, then 10 plus the assembly).
+- Measured, statements and round trips (§12 #54: a counter of Parse and Execute messages, then
+  lagproxy at 5 ms each way; a round trip 14.4 ms):
+
+  | Function | stockroom | shelf |
+  |---|---|---|
+  | stores, product reads and creates | 1 statement, 1 round trip | the same |
+  | `products::update` | 1, 1 | 2, 2: the read by SKU, then the patch |
+  | `orders::place`, 3 lines | 9 run, 2 re-prepared per call, 9 round trips | 7 run, 6 round trips |
+  | `orders::get`, 3 lines | 2, 1 (two joins, pipelined) | 4, 2 (no joins) |
+
+- Measured, lines of Rust (§12 #55): stores 57 against 34, products' ported items 150 against
+  87, orders' `place` and `get` 148 against 175. Hand-written SQL: 15 statements against 1.
+- A `PATCH` without `If-Match`: shelf's `Patch` always checks a version, stockroom's does not.
+  The port patches at the version it read, and tries again when it is stale (§12 #51; 30
+  concurrent patches, all applied).
+- The NDJSON stream: shelf's `ModelStream` borrows its connection, and the body must own it, so
+  the stream lives inside a generator that owns both (§12 #52).
 
 ## 14.4 Where shelf steps aside
 
 Plan:
-- The oversell-proof reservation: `UPDATE stock … WHERE available >= $3`, pipelined in
-  product-id order (main book Chapter 8): kept as SQL, its result read with a `FromRow` struct.
-- The CSV import's `MERGE` and the CSV export's `COPY`, the `LISTEN` connection, the outbox
-  worker's `SKIP LOCKED`: unchanged.
-- The pattern: shelf for the everyday reads and writes, hand-written SQL for the statements
-  whose wording is the point.
+- The reservation: `UPDATE stock … WHERE available >= $3`, pipelined in product-id order, keeps
+  its SQL inside a `place` whose reads and inserts are shelf's. stockroom's oversell and
+  deadlock tests pass on the port.
+- Unported, on purpose: an order's transitions (one `UPDATE` checks the state machine and the
+  version, `RETURNING old.status`), stock adjustments (`on_hand = stock.on_hand +
+  EXCLUDED.on_hand`, which an upsert that sets columns cannot say), serializable transfers, the
+  `MERGE` import, the COPY export, `LISTEN`, the reports.
+- The escape hatch for `orders::get`: stockroom's two joins as raw SQL, read with `FromRow`
+  structs through `fetch_one` and `fetch_all`: one round trip again, at the price of the SQL.
+- The pattern: shelf for the everyday reads and writes, SQL for the statements whose wording is
+  a rule.
 
 ## 14.5 What a production ORM would add
 
 Plan:
-- Migrations generated from models, a query builder with joins, lazy relations,
-  multi-database support, change tracking: what each would cost shelf in simplicity, and which
-  existing crate already does it (diesel, SeaORM, toasty).
+- Joins (the round trip `get` lost), migrations generated from models, lazy relations, change
+  tracking, other databases: what each would cost shelf in simplicity, and which crate already
+  does it (diesel, SeaORM, toasty).
 
 ## The programs
 
-- `run` (proposed): the ported router on a pool of one, driven with `oneshot`: create a
-  store, create a product, patch it with `If-Match`, place an order, read it back.
-- `orm/stockroom-shelf/tests/`: stockroom's route tests for the ported routes.
+- `run` (proposed): the ported router on a pool of one, driven with `oneshot`: create a store
+  and a product, patch it with `If-Match`, place an order, read it back. It needs the shelf
+  playground to depend on stockroom-shelf.
+- The tests the chapter points to: `tests/routes.rs` (11 scenarios against both routers, 63
+  replies compared, and which handler answered, from the statement cache; §12 #53),
+  `tests/concurrency.rs`, `tests/models.rs`.
+- `examples/line_for_line.rs`, the measurement (§12 #54).
 
 ## Side by side
 
 This chapter is one long side by side: stockroom's hand-written repository functions against
-the shelf versions, with the same routes on top.
+the shelf versions, with the same routes on top. The third column is the comparison of costs.
 
 ## The data
 
-stockroom's schema, migrated by stockroom's own migrations, seeded with `stockroom seed`.
+stockroom's schema, migrated by stockroom's own migrations; the tests clone stockroom's test
+template, through stockroom's own harness.
 
 ## Claims
 
-- Measured (to measure): lines, statements and round trips per ported route.
+- Measured: the statements and round trips per ported function (§12 #54), the lines (§12
+  #55), the routes' replies (§12 #53), `verify` on stockroom's schema (§12 #48).
 - Opinion: an ORM should cover the boring 80% and get out of the way of the rest.
 
 ## When not to use shelf
 
 - Every statement in 14.4, and any statement whose `WHERE` clause carries a business rule.
+- A response that joins several tables, when its round trip matters.
 
 ## Exercises
 
 Plan:
-1. Port `GET /stores/{code}/stock`. *Hint:* the virtual column is read-only.
-2. Add a route that lists a store's open orders with their lines. *Hint:* a filter, then a
-   batched loader.
-3. Count the round trips of `POST /orders` in both versions. *Hint:* `pg_stat_statements`, or
-   lagproxy's timings.
+1. Port `GET /stores/{code}/stock`. *Hint:* a store by code, its `Stock` rows by filter, their
+   products by loader; `available` is read only.
+2. Give shelf's `Patch` an optional version (`version = coalesce($n, version)`), and remove the
+   retry from `products::update`. *Hint:* `patch_sql`, and what `None` must mean.
+3. Write `orders::get` with joins through `FromRow`, and measure it with `line_for_line`.
+   *Hint:* two structs, two pipelined `fetch_*` calls.
 
-> **Open questions.** (1) Which routes to port: stores, products and orders' reads are the
-> proposal. (2) Whether stockroom-shelf reuses stockroom's test harness as a dependency or
-> copies its pattern. (3) Whether `AppError` comes from stockroom unchanged, with
-> `From<shelf::Error>`.
+> **Open questions.** (1) Whether the chapter's runnable examples drive stockroom-shelf from
+> the shelf playground (a dependency of the playground on the capstone), or show it through
+> excerpts and its tests only. (2) How much of `place` to print: it is 86 lines, most of them
+> stockroom's validation.
 
 ---
 

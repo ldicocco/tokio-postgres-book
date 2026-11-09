@@ -7,10 +7,11 @@ The derive macros that map rows to structs come first. A model layer, partial up
 optimistic locking, a typed query builder, relations without N+1 queries, bulk writes, streams
 and a schema check follow.**
 
-> **Status: phases S1a, S1b and S1c done, on the branch `shelf`.** The plan is in
+> **Status: phases S1a, S1b, S1c and S2 done, on the branch `shelf`.** The plan is in
 > [PLAN.md](PLAN.md). shelf is built and tested: `#[derive(FromRow)]`, the model layer (`Table`,
 > `Insert`, `Patch`, the executor), the typed query builder, relations, bulk writes, streams
-> and `verify`; the capstone comes next. **Chapters 0–4 are written**; every other chapter is
+> and `verify`; and so is the capstone, `stockroom-shelf`, which serves the main book's
+> stockroom API with stores, products and orders on shelf. **Chapters 0–4 are written**; every other chapter is
 > **sketched**: a plan of the chapter in its place, with draft prose where the content is
 > settled ([SKETCHES.md](SKETCHES.md)). [The book PDF](book/shelf-book.pdf) shows them all.
 
@@ -30,7 +31,8 @@ orm/
 ├── shelf/             the runtime: traits, executor, errors, query builder, … (re-exports the derives)
 ├── shelf-macros/      the proc-macro crate: a thin shell
 ├── shelf-codegen/     what the derives generate, as a plain library that tests and the book call
-└── playground/        the book's runnable examples (generated from the chapters) and helpers
+├── playground/        the book's runnable examples (generated from the chapters) and helpers
+└── stockroom-shelf/   the capstone: stockroom's API, with part of its data layer on shelf
 ```
 
 ## Running it
@@ -40,6 +42,7 @@ Set up as in the main book's [Chapter 0](../book/00-introduction.md) (PostgreSQL
 
 ```bash
 cargo test -p shelf -p shelf-codegen         # shelf's own tests
+cargo test -p stockroom-shelf                # the capstone, against stockroom's own router
 python3 tools/book.py --book orm check       # compile, lint and run every example in the book
 python3 tools/book.py --book orm list        # chapter status
 ```

@@ -20,6 +20,7 @@ members = [
     "orm/shelf-macros",
     "orm/shelf-codegen",
     "orm/playground",
+    "orm/stockroom-shelf",
 ]
 
 [workspace.package]
@@ -35,6 +36,7 @@ playground = { path = "playground" }
 shelf = { path = "orm/shelf" }
 shelf-macros = { path = "orm/shelf-macros" }
 shelf-codegen = { path = "orm/shelf-codegen" }
+stockroom = { path = "stockroom" }
 
 # The subject of the book
 tokio-postgres = { version = "0.7.18", features = ["with-jiff-0_2", "with-serde_json-1", "with-uuid-1", "array-impls"] }

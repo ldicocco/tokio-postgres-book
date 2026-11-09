@@ -17,7 +17,8 @@ software the book teaches from:
 - `tools/book.py`: extracts the examples, checks them, renders the PDFs. `--book orm` points it
   at the child project's book.
 - `orm/`: the **child project**, shelf: a small ORM on tokio-postgres (derive macros first,
-  then a model layer, a query builder and relations), with a second book that follows its build.
+  then a model layer, a query builder and relations), with a second book that follows its build,
+  and its capstone `orm/stockroom-shelf`, stockroom's API with part of its data layer on shelf.
   It has its own [orm/PLAN.md](orm/PLAN.md) and [orm/CLAUDE.md](orm/CLAUDE.md), which add to
   this file. Work on it happens on the branch `shelf`.
 
@@ -67,10 +68,11 @@ also uses `sketch`, a chapter's plan in its place; orm/SKETCHES.md).
 - **The child project, shelf (`orm/`), finished phases S0 (scaffold) and S1a (the mapping)** on
   2026-11-07, on the branch `shelf`: `#[derive(FromRow)]` complete, `book.py --book`, and a
   sketch of every chapter, in `orm/book/shelf-book.pdf`. Its Chapters 0–4 were written on
-  2026-11-09, and phases S1b (the model: `Executor`, `Table`, `Insert`, `Patch`) and S1c (the
-  query builder, relations, bulk writes, streams, `verify`) were done the same day; S2, the
-  capstone, is next (orm/PLAN.md §13). orm/PLAN.md §9 lists its phases, and §13 is the
-  checklist for the next one.
+  2026-11-09, and phases S1b (the model: `Executor`, `Table`, `Insert`, `Patch`), S1c (the
+  query builder, relations, bulk writes, streams, `verify`) and S2 (the capstone,
+  `orm/stockroom-shelf`, which reuses the `stockroom` crate and never changes it) were done the
+  same day; S3a (Chapter 5 and Chapter 0's §0.3) is next. orm/PLAN.md §9 lists its phases, and
+  §13 is the checklist for the next one.
 
 ## Commands
 
@@ -144,6 +146,7 @@ cargo run -p minipool --release -- --tasks 64 --pool-size 8 [--delay-ms 2]   # C
   - `stockroom_template_<checksum>` (migrated once, rebuilt when the migrations change) and
     the `stockroom_test_<uuid>` databases belong to the stockroom tests
     (`stockroom/tests/common/mod.rs`). Each test clones the template and drops its clone.
+    stockroom-shelf's tests use the same harness, and so the same databases.
   - Do not touch any other database on the server.
 - The optional `docker compose up -d --wait` runs Postgres 18 **with TLS on `:5434`**. It
   accepts TLS connections only (`hostssl`), and its certificate chains to
